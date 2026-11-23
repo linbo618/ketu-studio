@@ -1,3 +1,5 @@
+import { findSymbol, type SymbolId } from './symbols'
+
 export type Point = { x: number; y: number }
 export type Kind = 'rect' | 'ellipse' | 'diamond' | 'text' | 'line' | 'arrow' | 'pen'
 export type Tool = 'select' | 'hand' | Kind
@@ -27,6 +29,8 @@ export interface Shape {
   to?: string
   group?: string
   hidden?: boolean
+  symbol?: SymbolId
+  route?: 'straight' | 'elbow' | 'curve'
 }
 
 export interface Diagram {
@@ -46,6 +50,7 @@ export interface Library {
 }
 
 export const GRID = 16
+export const MAX_PAGE = { width: 6000, height: 6000 }
 export const FONT_STACKS = {
   sans: 'Inter, system-ui, Microsoft YaHei, PingFang SC, sans-serif',
   serif: 'Georgia, Songti SC, SimSun, serif',
@@ -70,7 +75,7 @@ export function shape(kind: Kind, x: number, y: number, options: Partial<Shape> 
     id: uid(), kind, x, y, width: 160, height: 64, rotation: 0,
     fill: kind === 'text' ? 'none' : '#e4f4eb', stroke: '#78a58f', strokeWidth: 1.5,
     color: '#21483b', fontSize: 18, font: 'sans', align: 'center', bold: false,
-    radius: 12, dashed: false, text: kind === 'text' ? '输入文字' : '',
+    radius: 12, dashed: false, hidden: false, text: kind === 'text' ? '输入文字' : '',
     ...options,
   }
 }
@@ -189,6 +194,7 @@ export function parseDiagram(raw: unknown): Diagram {
       return { x: numeric(point.x, 0, 1, 0), y: numeric(point.y, 0, 1, 0) }
     }) : undefined
     if (kind === 'pen' && (!points || points.length < 2)) throw new Error('画笔对象缺少轨迹')
+    const symbol = findSymbol(item.symbol)
     return shape(kind, numeric(item.x, -12000, 12000, 0), numeric(item.y, -12000, 12000, 0), {
       id, width: numeric(item.width, line ? -12000 : 1, 12000, 160),
       height: numeric(item.height, line ? -12000 : 1, 12000, 64),
@@ -204,6 +210,8 @@ export function parseDiagram(raw: unknown): Diagram {
       from: line ? short(item.from, 100) || undefined : undefined,
       to: line ? short(item.to, 100) || undefined : undefined,
       group: short(item.group, 100) || undefined, points,
+      symbol: symbol?.kind === kind ? symbol?.id : undefined,
+      route: line && (item.route === 'elbow' || item.route === 'curve' || item.route === 'straight') ? item.route : undefined,
     })
   })
 
@@ -215,7 +223,7 @@ export function parseDiagram(raw: unknown): Diagram {
   return {
     version: 1, id: short(data.id, 100) || uid(),
     name: short(data.name, 80, '未命名示意图').trim() || '未命名示意图',
-    width: numeric(data.width, 320, 3000, 960), height: numeric(data.height, 240, 2400, 640),
+    width: Math.round(numeric(data.width, 320, MAX_PAGE.width, 960)), height: Math.round(numeric(data.height, 240, MAX_PAGE.height, 640)),
     background: paint(data.background, '#ffffff'),
     shapes, updatedAt: short(data.updatedAt, 40, new Date().toISOString()),
   }

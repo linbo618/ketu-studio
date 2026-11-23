@@ -2,11 +2,15 @@ import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { ArrowDownRight, Check, ChevronDown, ChevronRight, Diamond, Download, File, FlaskConical, FolderOpen, Grid2X2, Hand, HardDrive, Keyboard, Layers3, LayoutGrid, Maximize, Minus, MousePointer2, Network, PanelLeft, PenLine, Plus, Redo2, Save, ScanLine, SlidersHorizontal, Sparkles, Square, Target, Type, Undo2, Workflow, X, Ellipsis } from 'lucide-react'
 import Canvas from './Canvas'
 import Inspector from './Inspector'
-import { ExportDialog, GenerateDialog, Modal, ShortcutDialog, TemplatesDialog } from './Dialogs'
+import { SymbolPicker } from './SymbolPicker'
+import { addLink, appendBranch, autoLink, growPage, makeNode, placeNode, type Side } from './graphEdit'
+import Generator, { detectLocalModel, localQwen, readConnection, rememberConnection } from './Generator'
+import type { SymbolId } from './symbols'
+import { ExportDialog, Modal, ShortcutDialog, TemplatesDialog } from './Dialogs'
 import { arrange } from './generate'
-import { exportDrawing, saveProject } from './export'
+import { exportDrawing, pngCanDouble, saveProject } from './export'
 import { experiment, templates } from './templates'
-import { bounds, clamp, cloneShapes, diagram, isLine, parseDiagram, readLibrary, removeShapes, round, uid, writeLibrary, type Diagram, type Shape, type Tool } from './model'
+import { bounds, clamp, cloneShapes, diagram, isLine, isNode, parseDiagram, readLibrary, removeShapes, round, uid, writeLibrary, type Diagram, type Point, type Shape, type Tool } from './model'
 
 const tools: { id: Tool; name: string; key: string; icon: ReactNode }[] = [
   { id: 'select', name: '选择', key: 'v', icon: <MousePointer2 size={18} /> },
@@ -25,7 +29,7 @@ function ArrowUpIcon() {
 }
 
 const templateIcons = [FlaskConical, Network, Workflow, Target]
-type Dialog = 'templates' | 'generate' | 'export' | 'shortcuts' | 'delete' | null
+type Dialog = 'templates' | 'generate' | 'export' | 'shortcuts' | 'delete' | 'symbols' | null
 type History = { before: Diagram[]; after: Diagram[] }
 
 export default function App() {
@@ -50,6 +54,19 @@ export default function App() {
   const svgRef = useRef<SVGSVGElement>(null)
   const titleRef = useRef<HTMLInputElement>(null)
   const [title, setTitle] = useState(project.name)
+  const [insertion, setInsertion] = useState<{ point: Point; source?: Shape; side?: Side }>()
+  const [autoGrow, setAutoGrow] = useState(true)
+  const [connection, setConnection] = useState(readConnection)
+  useEffect(() => { rememberConnection(connection) }, [connection])
+  useEffect(() => {
+    const controller = new AbortController()
+    void detectLocalModel(controller.signal).then(ready => {
+      if (ready && !controller.signal.aborted) setConnection(current =>
+        !current.model && current.provider === 'ollama' ? { ...localQwen, mode: current.mode } : current)
+    })
+    return () => controller.abort()
+  }, [])
+  const generationAnchor = selected.length === 1 ? project.shapes.find(item => item.id === selected[0] && isNode(item) && !item.hidden) : undefined
 
   useEffect(() => { setTitle(project.name) }, [project.id, project.name])
   useEffect(() => {
@@ -80,11 +97,12 @@ export default function App() {
   function commit(changes: Partial<Diagram>, selection?: string[]) {
     if (changes.shapes && changes.shapes.length > 1200) {
       message('此项目已达到 1200 个对象的上限', true)
-      return
+      return false
     }
     setHistory(state => ({ before: [...state.before.slice(-59), project], after: [] }))
     replace({ ...project, ...changes, updatedAt: new Date().toISOString() })
     if (selection) setSelected(selection)
+    return true
   }
 
   function undo() {
@@ -159,6 +177,43 @@ export default function App() {
     const key = ungroup ? undefined : uid()
     const groups = new Set(project.shapes.filter(item => selected.includes(item.id) && item.group).map(item => item.group))
     commit({ shapes: project.shapes.map(item => selected.includes(item.id) || groups.has(item.group) ? { ...item, group: key } : item) })
+  }
+
+  function commitShapes(shapes: Shape[], selection?: string[]) {
+    commit(autoGrow ? growPage(project, shapes) : { shapes }, selection)
+  }
+
+  function openSymbols(point?: Point, source?: Shape, side?: Side) {
+    setInsertion({ point: point ?? { x: project.width / 2, y: project.height / 2 }, source, side })
+    setDialog('symbols')
+  }
+
+  function insertSymbol(id: SymbolId) {
+    if (!insertion) return
+    const { source, side, point } = insertion
+    const item = placeNode(project, makeNode(id), point, source && side ? { node: source, side } : undefined, snap)
+    const shapes = [...project.shapes, item]
+    commitShapes(source ? addLink(shapes, source, item) : shapes, [item.id])
+    setTool('select')
+    setTab('properties')
+    setDialog(null)
+  }
+
+  function connectSelection(direction: 'horizontal' | 'vertical') {
+    const shapes = autoLink(project, selected, direction)
+    setMenu(null)
+    if (shapes === project.shapes) { message('选择至少两个未按此方向连接的节点'); return }
+    commit({ shapes })
+    message('已连接 ' + (shapes.length - project.shapes.length) + ' 条箭头')
+  }
+
+  function useGenerated(draft: Diagram, append: boolean) {
+    if (!append || !generationAnchor) { create(draft, '已创建可编辑示意图'); return }
+    const result = appendBranch(project, draft, generationAnchor)
+    if (!commit(result.changes, result.selected)) throw new Error('接入后会超过项目的 1200 个对象上限。')
+    fit()
+    setDialog(null)
+    message('已将生成的节点和连线接入当前图')
   }
 
   function layer(direction: 'up' | 'down') {
@@ -254,12 +309,13 @@ export default function App() {
         <button className="sidebar-link file-open" onClick={() => input.current?.click()}><FolderOpen size={17} />打开项目文件</button>
         <div className="nav-section">
           <div className="nav-heading"><h2>场景模板</h2><button className="icon-button" title="浏览全部模板" onClick={() => setDialog('templates')}><LayoutGrid size={15} /></button></div>
-          {templates.map((template, index) => {
+          {templates.slice(0, templateIcons.length).map((template, index) => {
             const Icon = templateIcons[index]
             return <button key={template.id} className="sidebar-link template-link" onClick={() => create(template.create(), '已从模板创建新项目')}>
               <span className={'template-icon ' + template.tone}><Icon size={16} /></span>{template.name}
             </button>
           })}
+          <button className="sidebar-link templates-all" onClick={() => setDialog('templates')}><LayoutGrid size={16} />全部模板<span>{templates.length}</span></button>
         </div>
         <div className="nav-section project-section">
           <div className="nav-heading"><h2>我的项目</h2><span>{library.projects.length}</span></div>
@@ -272,7 +328,7 @@ export default function App() {
       </div>
       <div className="sidebar-bottom">
         <button className="generate-card" onClick={() => setDialog('generate')}>
-          <span className="generate-icon"><Sparkles size={17} /></span><span><strong>文字生成流程图</strong><small>把步骤变成可编辑图形</small></span><ChevronRight size={15} />
+          <span className="generate-icon"><Sparkles size={17} /></span><span><strong>AI 示意图</strong><small>生成和续画可编辑图形</small></span><ChevronRight size={15} />
         </button>
         <button className="sidebar-link keyboard-link" onClick={() => setDialog('shortcuts')}><Keyboard size={17} />键盘快捷键</button>
       </div>
@@ -303,14 +359,19 @@ export default function App() {
       <div className="editor">
         <section className="canvas-panel" aria-label="绘图编辑器">
           <div className="canvas-bar">
-            <div className="canvas-tab"><Layers3 size={16} /><span>编辑画布</span></div>
+          <div className="canvas-tab"><Layers3 size={16} /><span>编辑画布</span></div>
             <div className="canvas-actions">
-              <button className={'outlined grid-button' + (grid ? ' active' : '')} onClick={() => setGrid(!grid)} aria-pressed={grid}><Grid2X2 size={15} /><span>网格</span></button>
+              <button className="outlined add-symbols" onClick={() => openSymbols()}><Plus size={15} /><span>图形库</span></button>
+              <button className="outlined quick-ai" onClick={() => setDialog('generate')}><Sparkles size={15} /><span>AI 生成</span></button>
+              <button className={'outlined grid-button' + (grid ? ' active' : '')} onClick={() => setGrid(!grid)} aria-label="网格" aria-pressed={grid}><Grid2X2 size={15} /><span>网格</span></button>
               <div className="menu-root" data-menu-root>
                 <button className="outlined view-button" onClick={() => setMenu(menu === 'view' ? null : 'view')}><ScanLine size={16} /><span>视图</span><ChevronDown size={13} /></button>
                 {menu === 'view' && <div className="popover">
                   <button onClick={fit}>适应窗口</button>
                   <button onClick={() => setSnap(!snap)}>网格吸附 {snap && <Check size={15} />}</button>
+                  <button onClick={() => setAutoGrow(!autoGrow)}>自动扩展画布 {autoGrow && <Check size={15} />}</button>
+                  <button onClick={() => connectSelection('horizontal')}>自动连线 · 从左到右</button>
+                  <button onClick={() => connectSelection('vertical')}>自动连线 · 从上到下</button>
                   <button onClick={() => { commit(arrange(project, 'horizontal')); fit() }}>自动布局 · 横向</button>
                   <button onClick={() => { commit(arrange(project, 'vertical')); fit() }}>自动布局 · 纵向</button>
                 </div>}
@@ -323,8 +384,9 @@ export default function App() {
               <button className={'tool-button' + (tool === item.id ? ' current' : '')} title={item.name + ' (' + item.key.toUpperCase() + ')'}
                 aria-label={item.name} aria-pressed={tool === item.id} onClick={() => setTool(item.id)}>{item.icon}<span>{item.name}</span></button>
             </div>)}</div>
-            <Canvas project={project} svgRef={svgRef} selected={selected} tool={tool} onSelect={setSelected} onCommit={(shapes, ids) => commit({ shapes }, ids)}
-              onFinishTool={() => setTool('select')} onEdit={editText} zoom={zoom} onZoom={changeZoom} grid={grid} snap={snap} reset={reset} onTemplates={() => setDialog('templates')} />
+            <Canvas project={project} svgRef={svgRef} selected={selected} tool={tool} onSelect={setSelected} onCommit={commitShapes}
+              onFinishTool={() => setTool('select')} onEdit={editText} zoom={zoom} onZoom={changeZoom} grid={grid} snap={snap} reset={reset} onTemplates={() => setDialog('templates')}
+              onExpand={openSymbols} onText={(id, text) => commit({ shapes: project.shapes.map(item => item.id === id ? { ...item, text } : item) })} />
           </div>
           <footer className="statusbar">
             <span className="object-count"><span />{project.shapes.length} 个对象{selected.length ? ' · 已选 ' + selected.length : ''}</span>
@@ -347,9 +409,11 @@ export default function App() {
 
     <input type="file" ref={input} accept=".json,application/json" hidden onChange={event => void open(event.target.files?.[0])} />
     {dialog === 'templates' && <TemplatesDialog onClose={() => setDialog(null)} onCreate={result => create(result, '已从模板创建新项目')} />}
-    {dialog === 'generate' && <GenerateDialog onClose={() => setDialog(null)} onCreate={result => create(result, '流程图已生成')} />}
+    {dialog === 'symbols' && <SymbolPicker onClose={() => setDialog(null)} onPick={insertSymbol} linked={Boolean(insertion?.source)} />}
+    {dialog === 'generate' && <Generator onClose={() => setDialog(null)} onUse={useGenerated}
+      anchor={generationAnchor} project={project} connection={connection} onConnection={setConnection} />}
     {dialog === 'shortcuts' && <ShortcutDialog onClose={() => setDialog(null)} />}
-    {dialog === 'export' && <ExportDialog onClose={() => setDialog(null)} onSave={() => { saveProject(project); message('已下载项目文件') }}
+    {dialog === 'export' && <ExportDialog canDouble={pngCanDouble(project)} onClose={() => setDialog(null)} onSave={() => { saveProject(project); message('已下载项目文件') }}
       onExport={async (format, transparent, scale) => {
         try {
           if (!svgRef.current) throw new Error('画布未加载')

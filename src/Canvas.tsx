@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type RefObject } from 'react'
-import { Blocks } from 'lucide-react'
+import { Blocks, Plus } from 'lucide-react'
 import { Drawing } from './Drawing'
 import { bounds, center, connector, fitGrid, isLine, isNode, rotateVector, round, shape, type Diagram, type Point, type Shape, type Tool } from './model'
+import { addLink, nearestNode, type Side } from './graphEdit'
 
 type Gesture = {
-  mode: 'pan' | 'draw' | 'move' | 'rotate' | 'resize' | 'marquee'
+  mode: 'pan' | 'draw' | 'move' | 'rotate' | 'resize' | 'marquee' | 'link'
   start: Point
   client: Point
   pan?: Point
@@ -13,6 +14,7 @@ type Gesture = {
   target?: Shape
   points?: Point[]
   add?: boolean
+  side?: Side
 }
 
 interface Props {
@@ -30,11 +32,17 @@ interface Props {
   snap: boolean
   reset: number
   onTemplates: () => void
+  onExpand: (point: Point, node?: Shape, side?: Side) => void
+  onText: (id: string, text: string) => void
 }
 
 const origin = { x: 0, y: 0 }
+const ports: { side: Side; x: number; y: number }[] = [
+  { side: 'right', x: 1, y: 0 }, { side: 'bottom', x: 0, y: 1 },
+  { side: 'left', x: -1, y: 0 }, { side: 'top', x: 0, y: -1 },
+]
 
-export default function Canvas({ project, svgRef, tool, selected, onSelect, onCommit, onFinishTool, onEdit, zoom, onZoom, grid, snap, reset, onTemplates }: Props) {
+export default function Canvas({ project, svgRef, tool, selected, onSelect, onCommit, onFinishTool, onEdit, zoom, onZoom, grid, snap, reset, onTemplates, onExpand, onText }: Props) {
   const view = useRef<HTMLDivElement>(null)
   const gesture = useRef<Gesture | null>(null)
   const [size, setSize] = useState({ x: 720, y: 520 })
@@ -44,10 +52,15 @@ export default function Canvas({ project, svgRef, tool, selected, onSelect, onCo
   const [pending, setPending] = useState<string>()
   const [space, setSpace] = useState(false)
   const [grabbing, setGrabbing] = useState(false)
+  const [link, setLink] = useState<{ from: Point; to: Point; target?: string }>()
+  const [editing, setEditing] = useState<{ item: Shape; text: string }>()
+  const editor = useRef<HTMLTextAreaElement>(null)
   const paddingX = size.x < 500 ? 20 : 52
   const scale = Math.max(.08, Math.min((size.x - paddingX) / project.width, (size.y - 64) / project.height, 1.2)) * zoom
   const paperWidth = project.width * scale
   const paperHeight = project.height * scale
+  const activeNode = tool === 'select' && selected.length === 1 && !preview && !editing
+    ? project.shapes.find(item => item.id === selected[0] && isNode(item) && !item.hidden) : undefined
 
   useEffect(() => {
     const observer = new ResizeObserver(([entry]) => setSize({ x: entry.contentRect.width, y: entry.contentRect.height }))
@@ -56,7 +69,22 @@ export default function Canvas({ project, svgRef, tool, selected, onSelect, onCo
   }, [])
 
   useEffect(() => { setPan(origin) }, [project.id, reset])
-  useEffect(() => { setPending(undefined) }, [project.id, tool])
+  useEffect(() => { setPending(undefined); setEditing(undefined) }, [project.id, tool])
+  useEffect(() => {
+    if (editing && document.activeElement !== editor.current) {
+      editor.current?.focus()
+      editor.current?.select()
+    }
+  }, [editing])
+  useEffect(() => {
+    function enter(event: KeyboardEvent) {
+      if (event.key !== 'Enter' || event.ctrlKey || event.metaKey || !activeNode || (event.target as Element)?.closest('button,input,textarea,select,dialog')) return
+      event.preventDefault()
+      setEditing({ item: activeNode, text: activeNode.text })
+    }
+    window.addEventListener('keydown', enter)
+    return () => window.removeEventListener('keydown', enter)
+  }, [activeNode])
   useEffect(() => {
     function key(event: KeyboardEvent) {
       if (event.code !== 'Space' || (event.target as HTMLElement)?.closest('input,textarea,select,button,[contenteditable],dialog')) return
@@ -93,6 +121,21 @@ export default function Canvas({ project, svgRef, tool, selected, onSelect, onCo
   function getTarget(element: Element | null) {
     const id = element?.closest('[data-shape]')?.getAttribute('data-shape')
     return project.shapes.find(item => item.id === id)
+  }
+
+  function position(item: Shape, side: Side, gap: number) {
+    const port = ports.find(item => item.side === side)!
+    const c = center(item)
+    const rect = bounds(item, new Map())
+    return { x: c.x + port.x * (rect.width / 2 + gap), y: c.y + port.y * (rect.height / 2 + gap) }
+  }
+
+  function beginLink(event: ReactPointerEvent<HTMLButtonElement>, item: Shape, side: Side) {
+    if (event.button !== 0) return
+    event.stopPropagation()
+    event.preventDefault()
+    gesture.current = { mode: 'link', item, side, start: position(item, side, 0), client: { x: event.clientX, y: event.clientY } }
+    view.current?.setPointerCapture(event.pointerId)
   }
 
   function start(event: ReactPointerEvent<HTMLDivElement>) {
@@ -183,7 +226,21 @@ export default function Canvas({ project, svgRef, tool, selected, onSelect, onCo
     const delta = { x: event.clientX - g.client.x, y: event.clientY - g.client.y }
     const moved = Math.hypot(delta.x, delta.y) > 3
     const point = locate(event.clientX, event.clientY)
-    if (g.mode === 'pan') {
+    if (g.mode === 'link') {
+      const from = g.item!
+      const target = moved ? nearestNode(project, point, from.id, 20 / scale) : undefined
+      if (!final) setLink({ from: g.start, to: target ? center(target) : point, target: target?.id })
+      else if (target) {
+        const shapes = addLink(project.shapes, from, target)
+        if (shapes !== project.shapes) onCommit(shapes, [target.id])
+        else onSelect([target.id])
+      } else {
+        const c = center(from)
+        const rightOrLeft = Math.abs(point.x - c.x) >= Math.abs(point.y - c.y)
+        const side = moved ? rightOrLeft ? point.x > c.x ? 'right' : 'left' : point.y > c.y ? 'bottom' : 'top' : g.side!
+        onExpand(moved ? point : position(from, side, 148), from, side)
+      }
+    } else if (g.mode === 'pan') {
       setPan({ x: g.pan!.x + delta.x, y: g.pan!.y + delta.y })
     } else if (g.mode === 'draw') {
       const endTarget = g.item?.kind === 'arrow'
@@ -239,25 +296,58 @@ export default function Canvas({ project, svgRef, tool, selected, onSelect, onCo
     setGrabbing(false)
     setPreview(null)
     setMarquee(undefined)
+    setLink(undefined)
+  }
+
+  function finishEditing(cancel = false) {
+    if (!editing) return
+    if (!cancel && editing.text !== editing.item.text) onText(editing.item.id, editing.text)
+    setEditing(undefined)
   }
 
   return <div ref={view} className={'viewport tool-' + (space ? 'hand' : tool) + (grabbing ? ' grabbing' : '')}
     onPointerDown={start} onPointerMove={event => update(event, false)}
     onPointerUp={event => update(event, true)} onPointerCancel={cancel} onLostPointerCapture={cancel}
     onDoubleClick={event => {
-      if (tool === 'select' && getTarget(document.elementFromPoint(event.clientX, event.clientY))) onEdit()
+      if (tool !== 'select') return
+      const item = getTarget(document.elementFromPoint(event.clientX, event.clientY))
+      if (!item) return
+      if (isNode(item) || item.kind === 'text' || isLine(item)) setEditing({ item, text: item.text })
     }}>
     <div className="paper-position" style={{ width: paperWidth, height: paperHeight, left: size.x / 2 + pan.x, top: size.y / 2 + pan.y }}>
       <div className="paper-label"><span>画布</span><span>{project.width} × {project.height}</span></div>
       <Drawing ref={svgRef} project={preview ? { ...project, shapes: preview } : project} grid={grid}
-        interactive selected={selected} pending={pending}>
+        interactive selected={selected} pending={link?.target ?? pending}>
         {marquee && <rect {...marquee} stroke="#16845f" fill="#16845f1a" strokeDasharray="5 4" />}
+        {link && <line x1={link.from.x} y1={link.from.y} x2={link.to.x} y2={link.to.y}
+          stroke="#16845f" strokeWidth="2" strokeDasharray="6 4" pointerEvents="none" />}
       </Drawing>
+      {activeNode && !link && ports.map(port => {
+        const location = position(activeNode, port.side, 15 / scale)
+        return <button key={port.side} className={'node-port port-' + port.side} type="button"
+          title="点击扩展节点，拖到其他节点连线" aria-label={{ right: '向右扩展', bottom: '向下扩展', left: '向左扩展', top: '向上扩展' }[port.side]}
+          style={{ left: location.x * scale, top: location.y * scale }}
+          onPointerDown={event => beginLink(event, activeNode, port.side)}
+          onClick={event => { if (event.detail === 0) onExpand(position(activeNode, port.side, 148), activeNode, port.side) }}><Plus size={13} /></button>
+      })}
+      {editing && <textarea className="inline-editor" aria-label="在画布编辑文字" maxLength={800} ref={editor} value={editing.text}
+        style={{ left: Math.max(4, Math.min(paperWidth - 136, center(editing.item).x * scale - 70)),
+          top: Math.max(4, Math.min(paperHeight - 49, center(editing.item).y * scale - 22)),
+          width: Math.max(130, Math.min(paperWidth - 8, editing.item.width * scale, 290)) }}
+        onPointerDown={event => event.stopPropagation()} onDoubleClick={event => event.stopPropagation()}
+        onChange={event => setEditing({ ...editing, text: event.target.value })} onBlur={() => finishEditing()}
+        onKeyDown={event => {
+          if (event.key === 'Escape') { event.preventDefault(); finishEditing(true) }
+          if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) {
+            event.preventDefault(); finishEditing()
+          }
+        }} />}
       {project.shapes.length === 0 && !preview && tool === 'select' && <div className="canvas-empty">
         <Blocks size={28} /><strong>空白画布</strong><span>从左侧选择工具开始绘制</span>
         <button onClick={onTemplates}>浏览模板</button>
       </div>}
     </div>
     {pending && <div className="canvas-tip">点击另一个图形完成连线</div>}
+    {activeNode && !link && !pending && <div className="port-hint">点击 ＋ 扩展节点 · 拖动 ＋ 连线</div>}
   </div>
 }

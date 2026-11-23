@@ -1,6 +1,7 @@
 import { ArrowDownToLine, ArrowUpToLine, ChevronDown, Circle, Copy, Eye, EyeOff, Group, Layers3, RotateCcw, SlidersHorizontal, Square, Trash2, Ungroup, X } from 'lucide-react'
 import { useEffect, useState, type ReactNode } from 'react'
-import { clamp, COLORS, isLine, KIND_NAMES, round, type Diagram, type Shape } from './model'
+import { clamp, COLORS, isLine, KIND_NAMES, MAX_PAGE, round, type Diagram, type Shape } from './model'
+import { symbolLabel } from './symbols'
 
 function Section({ title, children, end }: { title: string; children: ReactNode; end?: ReactNode }) {
   return <section className="property-section"><div className="section-heading"><h3>{title}</h3>{end}</div>{children}</section>
@@ -103,7 +104,7 @@ export default function Inspector({ project, selected, tab, onTab, onSelect, onS
       </> : item ? <>
         <div className="object-heading">
           <div className="object-icon">{item.kind === 'ellipse' ? <Circle size={19} /> : <Square size={19} />}</div>
-          <div><strong>{item.text?.split('\n')[0] || KIND_NAMES[item.kind]}</strong><span>{KIND_NAMES[item.kind]}</span></div>
+          <div><strong>{item.text?.split('\n')[0] || symbolLabel(item) || KIND_NAMES[item.kind]}</strong><span>{symbolLabel(item) ?? KIND_NAMES[item.kind]}</span></div>
         </div>
         <Section title="位置与尺寸" end={<button className="icon-button small" title="重置旋转" disabled={item.rotation === 0} onClick={() => update({ rotation: 0 })}><RotateCcw size={14} /></button>}>
           <div className="field-grid">
@@ -116,6 +117,12 @@ export default function Inspector({ project, selected, tab, onTab, onSelect, onS
           </div>
           {line && (item.from || item.to) && <p className="field-note">箭头端点随已连接的图形移动。</p>}
         </Section>
+        {line && <Section title="连线">
+          <label className="select-wrap"><select aria-label="连线样式" value={item.route ?? 'straight'} onChange={event => update({ route: event.target.value as Shape['route'] })}>
+            <option value="straight">直线</option><option value="elbow">直角折线</option><option value="curve">曲线</option>
+          </select><ChevronDown size={13} /></label>
+          <TextField key={item.id} value={item.text} onCommit={text => update({ text })} />
+        </Section>}
         <Section title="外观">
           {!line && item.kind !== 'pen' && <ColorField label="填充" value={item.fill} onChange={fill => update({ fill })} palettes transparent />}
           {(item.kind !== 'text' || item.fill !== 'none') && <ColorField label={line || item.kind === 'pen' ? '线条' : '描边'} value={item.stroke} onChange={stroke => update({ stroke })} />}
@@ -151,8 +158,8 @@ export default function Inspector({ project, selected, tab, onTab, onSelect, onS
       </Section></> : <>
         <div className="object-heading"><div className="object-icon"><Square size={19} /></div><div><strong>画布</strong><span>页面设置</span></div></div>
         <Section title="画布尺寸"><div className="field-grid">
-          <NumberField label="宽度" value={project.width} min={320} max={3000} onChange={width => onProject({ width: Math.round(width) })} />
-          <NumberField label="高度" value={project.height} min={240} max={2400} onChange={height => onProject({ height: Math.round(height) })} />
+          <NumberField label="宽度" value={project.width} min={320} max={MAX_PAGE.width} onChange={width => onProject({ width: Math.round(width) })} />
+          <NumberField label="高度" value={project.height} min={240} max={MAX_PAGE.height} onChange={height => onProject({ height: Math.round(height) })} />
         </div><ColorField label="背景" value={project.background} onChange={background => onProject({ background })} palettes /></Section>
         <p className="inspector-tip">选择画布中的对象，即可调整位置、颜色和文字。</p>
       </>}

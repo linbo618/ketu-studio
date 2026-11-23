@@ -51,3 +51,7 @@ export async function exportDrawing(svg: SVGSVGElement, project: Diagram, format
     URL.revokeObjectURL(url)
   }
 }
+
+export function pngCanDouble(project: Diagram) {
+  return project.width * project.height * 4 <= 40_000_000
+}

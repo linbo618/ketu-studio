@@ -1,5 +1,20 @@
 import { forwardRef, useId } from 'react'
 import { center, FONT_STACKS, isLine, lineEnds, type Diagram, type Shape } from './model'
+import NodeGlyph from './NodeGlyph'
+
+function routeLine(a: { x: number; y: number }, b: { x: number; y: number }, route: Shape['route']) {
+  const horizontal = Math.abs(a.x - b.x) >= Math.abs(a.y - b.y)
+  const label = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 }
+  const p = horizontal ? { x: label.x, y: a.y } : { x: a.x, y: label.y }
+  const q = horizontal ? { x: label.x, y: b.y } : { x: b.x, y: label.y }
+  const position = (point: typeof a) => point.x + ' ' + point.y
+  const move = 'M ' + position(a)
+  const path = route === 'elbow' ? move + ' L ' + [p, q, b].map(position).join(' ')
+    : route === 'curve' ? move + ' C ' + [p, q, b].map(position).join(' ')
+      : move + ' L ' + position(b)
+  return { path, label, angle: route && route !== 'straight' && (q.x !== b.x || q.y !== b.y)
+    ? Math.atan2(b.y - q.y, b.x - q.x) : Math.atan2(b.y - a.y, b.x - a.x) }
+}
 
 function wrap(text: string, maxWidth: number, size: number) {
   const max = Math.max(1, maxWidth / size)
@@ -32,7 +47,8 @@ function ShapeView({ item }: { item: Shape }) {
   const lineHeight = item.fontSize * 1.25
   const labelX = item.align === 'left' ? item.x + 8 : item.align === 'right' ? item.x + item.width - 8 : c.x
   return <g transform={'rotate(' + item.rotation + ' ' + c.x + ' ' + c.y + ')'}>
-    {(item.kind === 'rect' || item.kind === 'text') && <rect x={item.x} y={item.y} width={item.width} height={item.height} rx={Math.min(item.radius, item.width / 2, item.height / 2)} {...style} stroke={item.kind === 'text' && item.fill === 'none' ? 'none' : item.stroke} pointerEvents="all" />}
+    {item.kind === 'rect' && item.symbol && <NodeGlyph item={item} />}
+    {((item.kind === 'rect' && !item.symbol) || item.kind === 'text') && <rect x={item.x} y={item.y} width={item.width} height={item.height} rx={Math.min(item.radius, item.width / 2, item.height / 2)} {...style} stroke={item.kind === 'text' && item.fill === 'none' ? 'none' : item.stroke} pointerEvents="all" />}
     {item.kind === 'ellipse' && <ellipse cx={c.x} cy={c.y} rx={item.width / 2} ry={item.height / 2} {...style} pointerEvents="all" />}
     {item.kind === 'diamond' && <polygon points={[[c.x, item.y], [item.x + item.width, c.y], [c.x, item.y + item.height], [item.x, c.y]].map(point => point.join(',')).join(' ')} {...style} strokeLinejoin="round" pointerEvents="all" />}
     {item.kind === 'pen' && <polyline fill="none" stroke={item.stroke} strokeWidth={item.strokeWidth} strokeLinecap="round" strokeLinejoin="round" strokeDasharray={style.strokeDasharray} points={item.points?.map(point => [item.x + point.x * item.width, item.y + point.y * item.height].join(',')).join(' ')} />}
@@ -51,11 +67,12 @@ interface Props {
   interactive?: boolean
   selected?: string[]
   pending?: string
+  decorative?: boolean
   children?: React.ReactNode
 }
 
 export const Drawing = forwardRef<SVGSVGElement, Props>(function Drawing(
-  { project, grid, interactive, selected = [], pending, children }, ref,
+  { project, grid, interactive, selected = [], pending, children, decorative }, ref,
 ) {
   const pattern = 'grid' + useId().replace(/[^a-z0-9]/gi, '')
   const byId = new Map(project.shapes.map(item => [item.id, item]))
@@ -63,7 +80,7 @@ export const Drawing = forwardRef<SVGSVGElement, Props>(function Drawing(
     !byId.get(item.from ?? '')?.hidden && !byId.get(item.to ?? '')?.hidden)
   return <svg ref={ref} className={interactive ? 'drawing' : 'thumbnail-drawing'} xmlns="http://www.w3.org/2000/svg"
     viewBox={'0 0 ' + project.width + ' ' + project.height} width={project.width} height={project.height}
-    role="img" aria-label={project.name} data-diagram={interactive ? 'active' : undefined}>
+    role={decorative ? undefined : 'img'} aria-hidden={decorative || undefined} aria-label={decorative ? undefined : project.name} data-diagram={interactive ? 'active' : undefined}>
     <rect width={project.width} height={project.height} fill={project.background} />
     {grid && <g data-editor-only="true" pointerEvents="none">
       <defs><pattern id={pattern} width="16" height="16" patternUnits="userSpaceOnUse"><circle cx="1.5" cy="1.5" r="0.85" fill="#7e9c8a" opacity=".34" /></pattern></defs>
@@ -78,15 +95,19 @@ export const Drawing = forwardRef<SVGSVGElement, Props>(function Drawing(
         }
         if (!isLine(item)) return <g key={item.id} {...attributes}><ShapeView item={item} /></g>
         const [a, b] = lineEnds(item, byId)
-        const angle = Math.atan2(b.y - a.y, b.x - a.x)
+        const { path, angle, label } = routeLine(a, b, item.route)
         const size = Math.max(8, item.strokeWidth * 3)
         const arrow = [[b.x, b.y], ...[-.47, .47].map(offset => [
           b.x - size * Math.cos(angle + offset), b.y - size * Math.sin(angle + offset),
         ])].map(point => point.join(',')).join(' ')
         return <g key={item.id} {...attributes}>
-          {interactive && <line x1={a.x} y1={a.y} x2={b.x} y2={b.y} stroke="transparent" strokeWidth="18" data-editor-only="true" />}
-          <line x1={a.x} y1={a.y} x2={b.x} y2={b.y} stroke={item.stroke} strokeWidth={item.strokeWidth} strokeLinecap="round" strokeDasharray={item.dashed ? '7 5' : undefined} />
+          {interactive && <path d={path} fill="none" stroke="transparent" strokeWidth="18" data-editor-only="true" />}
+          {item.route && item.route !== 'straight'
+            ? <path d={path} fill="none" stroke={item.stroke} strokeWidth={item.strokeWidth} strokeLinecap="round" strokeLinejoin="round" strokeDasharray={item.dashed ? '7 5' : undefined} />
+            : <line x1={a.x} y1={a.y} x2={b.x} y2={b.y} stroke={item.stroke} strokeWidth={item.strokeWidth} strokeLinecap="round" strokeDasharray={item.dashed ? '7 5' : undefined} />}
           {item.kind === 'arrow' && <polygon points={arrow} fill={item.stroke} />}
+          {item.text && <text x={label.x} y={label.y} dominantBaseline="central" textAnchor="middle" fontSize={item.fontSize}
+            fontFamily={FONT_STACKS[item.font]} fill={item.color} stroke={project.background} strokeWidth="6" paintOrder="stroke" strokeLinejoin="round">{item.text}</text>}
         </g>
       })}
     </g>
@@ -94,7 +115,7 @@ export const Drawing = forwardRef<SVGSVGElement, Props>(function Drawing(
       {visible.filter(item => selected.includes(item.id) || item.id === pending).map(item => {
         if (isLine(item)) {
           const [a, b] = lineEnds(item, byId)
-          return <line key={item.id} x1={a.x} y1={a.y} x2={b.x} y2={b.y} stroke="#12895d" strokeWidth="1.5" strokeDasharray="4 4" pointerEvents="none" />
+          return <path key={item.id} d={routeLine(a, b, item.route).path} fill="none" stroke="#12895d" strokeWidth="1.5" strokeDasharray="4 4" pointerEvents="none" />
         }
         const c = center(item)
         const handle = selected.length === 1 && item.id !== pending

@@ -1,10 +1,14 @@
 import { connector, diagram, shape, type Diagram, type Shape } from './model'
+import { makeNode } from './graphEdit'
+import { arrange, type DiagramFamily } from './generate'
+import type { SymbolId } from './symbols'
 
 export interface Template {
   id: string
   name: string
   detail: string
   tone: string
+  category: DiagramFamily
   create: () => Diagram
 }
 
@@ -82,9 +86,42 @@ function research() {
   ])
 }
 
+function scenario(id: string, name: string, detail: string, category: DiagramFamily, tone: string,
+  steps: [SymbolId, string][], relations: [number, number, string?][], vertical = false): Template {
+  return { id, name, detail, category, tone, create: () => {
+    const nodes = steps.map(([type, label]) => makeNode(type, label))
+    const arrows = relations.map(([from, to, text = '']) => connector(nodes[from], nodes[to], { text, route: 'elbow', fontSize: 13 }))
+    return arrange(diagram(name, [...heading(name, detail), ...arrows, ...nodes]), vertical ? 'vertical' : 'horizontal')
+  } }
+}
+
 export const templates: Template[] = [
-  { id: 'experiment', name: '实验流程图', detail: '实验步骤、条件判断和结果整理', tone: 'mint', create: experiment },
-  { id: 'architecture', name: '软件架构图', detail: '前端、业务和数据层之间的关系', tone: 'blue', create: architecture },
-  { id: 'pipeline', name: '数据处理图', detail: '数据采集、清洗、分析与呈现', tone: 'lavender', create: pipeline },
-  { id: 'research', name: '研究方法图', detail: '研究问题、方法与结论的框架', tone: 'amber', create: research },
+  { id: 'experiment', name: '实验流程图', detail: '实验步骤、条件判断和结果整理', category: '实验流程图', tone: 'mint', create: experiment },
+  { id: 'architecture', name: '软件架构图', detail: '前端、业务和数据层之间的关系', category: '系统架构图', tone: 'blue', create: architecture },
+  { id: 'pipeline', name: '数据处理图', detail: '数据采集、清洗、分析与呈现', category: '数据管道图', tone: 'lavender', create: pipeline },
+  { id: 'research', name: '研究方法图', detail: '研究问题、方法与结论的框架', category: '思维导图', tone: 'amber', create: research },
+  scenario('submission', '作业提交与返工', '从初稿、要求检查到提交回执', '流程图', 'mint',
+    [['terminal', '准备初稿'], ['decision', '格式合格？'], ['process', '修订材料'], ['document', '提交回执']],
+    [[0, 1], [1, 2, '否'], [2, 1], [1, 3, '是']]),
+  scenario('account', '注册与身份验证', '注册表单、验证码和账号创建', '流程图', 'lavender',
+    [['input', '填写注册资料'], ['decision', '校验通过？'], ['process', '修正输入'], ['terminal', '账号创建成功']],
+    [[0, 1], [1, 2, '否'], [1, 3, '是'], [2, 0]]),
+  scenario('lost', '失物招领系统', '用户、网页、业务服务和数据存储', '系统架构图', 'blue',
+    [['actor', '学生'], ['component', '校园网页'], ['interface', '认领服务'], ['database', '物品数据库'], ['queue', '通知队列']],
+    [[0, 1], [1, 2], [2, 3], [2, 4]]),
+  scenario('cloud', '网站部署拓扑', '访问入口、云端服务和缓存', '系统架构图', 'blue',
+    [['actor', '访客'], ['cloud', '访问入口'], ['component', 'Web 服务'], ['database', '数据库'], ['component', '缓存']],
+    [[0, 1], [1, 2], [2, 3], [2, 4]], true),
+  scenario('defense', '答辩准备思维导图', '从内容、演示、问答三个方向展开', '思维导图', 'amber',
+    [['concept', '课程答辩'], ['topic', '内容准备'], ['topic', '现场演示'], ['topic', '问答'], ['task', '梳理论点'], ['task', '录屏备用'], ['task', '准备追问']],
+    [[0, 1], [0, 2], [0, 3], [1, 4], [2, 5], [3, 6]], true),
+  scenario('milestones', '两周项目路线图', '需求、原型、联调、验收的里程碑', '项目路线图', 'lavender',
+    [['milestone', '需求明确'], ['task', '原型评审'], ['task', '开发联调'], ['milestone', '验收提交']],
+    [[0, 1], [1, 2], [2, 3]]),
+  scenario('control', '对照实验记录', '试验组和对照组并行记录', '实验流程图', 'mint',
+    [['terminal', '样本编号'], ['process', '试验组'], ['process', '对照组'], ['input', '记录指标'], ['document', '汇总比较']],
+    [[0, 1], [0, 2], [1, 3], [2, 3], [3, 4]]),
+  scenario('survey', '问卷数据管道', '合并双渠道数据，去重后生成报表', '数据管道图', 'lavender',
+    [['input', 'CSV 文件'], ['interface', '问卷接口'], ['subprocess', '校验去重'], ['database', '结果表'], ['document', '统计报表']],
+    [[0, 2], [1, 2], [2, 3], [3, 4]]),
 ]

@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
-import { Check, ChevronDown, FileImage, FileJson, PencilRuler, Sparkles, X } from 'lucide-react'
+import { Check, ChevronDown, FileImage, FileJson, X } from 'lucide-react'
 import { Drawing } from './Drawing'
 import { templates } from './templates'
-import { fromAI, fromOutline } from './generate'
-import type { Diagram, Direction } from './model'
+import { diagramFamilies } from './generate'
+import type { Diagram } from './model'
 
 export function Modal({ title, description, onClose, children, wide }: {
   title: string; description?: string; onClose: () => void; children: ReactNode; wide?: boolean
@@ -26,74 +26,23 @@ export function Modal({ title, description, onClose, children, wide }: {
 const previews = templates.map(template => template.create())
 
 export function TemplatesDialog({ onClose, onCreate }: { onClose: () => void; onCreate: (project: Diagram) => void }) {
-  return <Modal title="从模板开始" description="选择一个场景，创建可编辑的副本。" onClose={onClose} wide>
-    <div className="template-gallery">{templates.map((item, index) => <button key={item.id} className="template-card" onClick={() => onCreate(item.create())}>
-      <div className={'template-preview ' + item.tone}><Drawing project={previews[index]} /></div>
+  const [category, setCategory] = useState('全部')
+  return <Modal title="从模板开始" description="12 个场景模板，每个图形和连线都可编辑。" onClose={onClose} wide>
+    <div className="filter-row">{['全部', ...diagramFamilies].map(name => <button key={name} className={'outlined' + (category === name ? ' active' : '')}
+      aria-pressed={category === name} onClick={() => setCategory(name)}>{name}</button>)}</div>
+    <div className="template-gallery">{templates.map((item, index) => (category === '全部' || category === item.category) && <button key={item.id} className="template-card" onClick={() => onCreate(item.create())}>
+      <div className={'template-preview ' + item.tone}><Drawing project={previews[index]} decorative /></div>
       <div><strong>{item.name}</strong><span>{item.detail}</span></div>
     </button>)}</div>
   </Modal>
 }
 
-const sample = '标题：课程作业提交\n准备作业材料\n核对格式要求\n上传到课程平台\n确认提交成功'
-
-export function GenerateDialog({ onClose, onCreate }: { onClose: () => void; onCreate: (project: Diagram) => void }) {
-  const [description, setDescription] = useState('')
-  const [direction, setDirection] = useState<Direction>('horizontal')
-  const [mode, setMode] = useState<'local' | 'ai'>('local')
-  const [endpoint, setEndpoint] = useState('')
-  const [model, setModel] = useState('')
-  const [key, setKey] = useState('')
-  const [busy, setBusy] = useState(false)
-  const [error, setError] = useState('')
-  const active = useRef(true)
-  useEffect(() => () => { active.current = false }, [])
-
-  async function generate() {
-    if (!description.trim()) { setError('请输入步骤或简要描述。'); return }
-    setBusy(true)
-    setError('')
-    try {
-      const result = mode === 'ai'
-        ? await fromAI(description, direction, { endpoint, model, key })
-        : fromOutline(description, direction)
-      if (active.current) onCreate(result)
-    } catch (cause) {
-      if (active.current) setError(cause instanceof Error ? cause.message : '生成失败')
-    } finally {
-      if (active.current) setBusy(false)
-    }
-  }
-
-  return <Modal title="文字生成流程图" description="把课程步骤变成可编辑的图形和箭头。" onClose={onClose}>
-    <form className="dialog-form" onSubmit={event => { event.preventDefault(); void generate() }}>
-      <div className="segmented">
-        <button type="button" className={mode === 'local' ? 'current' : ''} onClick={() => setMode('local')}><PencilRuler size={15} />按步骤生成</button>
-        <button type="button" className={mode === 'ai' ? 'current' : ''} onClick={() => setMode('ai')}><Sparkles size={15} />连接 AI 模型</button>
-      </div>
-      <div><div className="label-row"><label htmlFor="outline">流程描述</label><button type="button" className="text-button" onClick={() => setDescription(sample)}>填入示例</button></div>
-        <textarea id="outline" rows={5} maxLength={3000} placeholder={sample} value={description} onChange={event => setDescription(event.target.value)} />
-      </div>
-      {mode === 'ai' && <div className="ai-fields">
-        <label>接口地址<input type="url" required value={endpoint} placeholder="https://…/v1/chat/completions" onChange={event => setEndpoint(event.target.value)} /></label>
-        <label>模型名称<input required value={model} placeholder="服务商提供的模型 ID" onChange={event => setModel(event.target.value)} /></label>
-        <label>API 密钥<input type="password" autoComplete="off" value={key} placeholder="本次生成使用" onChange={event => setKey(event.target.value)} /></label>
-        <p>描述会发送到所填服务。关闭窗口后清除密钥。</p>
-      </div>}
-      <label className="dialog-label">布局方向<span className="select-wrap"><select value={direction} onChange={event => setDirection(event.target.value as Direction)}>
-        <option value="horizontal">从左到右</option><option value="vertical">从上到下</option>
-      </select><ChevronDown size={14} /></span></label>
-      {error && <p className="error" role="alert">{error}</p>}
-      <div className="dialog-footer"><button type="button" className="outlined" onClick={onClose}>取消</button><button className="primary" disabled={busy} type="submit"><Sparkles size={16} />{busy ? '正在生成…' : '生成新项目'}</button></div>
-    </form>
-  </Modal>
-}
-
-export function ExportDialog({ onClose, onExport, onSave }: {
-  onClose: () => void; onExport: (format: 'png' | 'svg', transparent: boolean, scale: number) => Promise<void>; onSave: () => void
+export function ExportDialog({ onClose, onExport, onSave, canDouble }: {
+  onClose: () => void; onExport: (format: 'png' | 'svg', transparent: boolean, scale: number) => Promise<void>; onSave: () => void; canDouble: boolean
 }) {
   const [format, setFormat] = useState<'png' | 'svg'>('png')
   const [transparent, setTransparent] = useState(false)
-  const [scale, setScale] = useState(2)
+  const [scale, setScale] = useState(canDouble ? 2 : 1)
   const [busy, setBusy] = useState(false)
   return <Modal title="导出示意图" description="将图形用于报告、作业或答辩幻灯片。" onClose={onClose}>
     <form className="dialog-form" onSubmit={async event => {
@@ -108,8 +57,9 @@ export function ExportDialog({ onClose, onExport, onSave }: {
         </button>)}
       </div>
       {format === 'png' && <label className="dialog-label">分辨率<span className="select-wrap"><select value={scale} onChange={event => setScale(Number(event.target.value))}>
-        <option value={1}>1× 原始大小</option><option value={2}>2× 高清</option>
+        <option value={1}>1× 原始大小</option><option value={2} disabled={!canDouble}>2× 高清</option>
       </select><ChevronDown size={14} /></span></label>}
+      {format === 'png' && !canDouble && <p className="field-note">大画布可以导出 1× PNG 或任意缩放的 SVG。</p>}
       <label className="check-field"><input type="checkbox" checked={transparent} onChange={event => setTransparent(event.target.checked)} />透明背景</label>
       <div className="dialog-footer split">
         <button type="button" className="text-button" onClick={onSave}><FileJson size={16} />下载项目文件</button>

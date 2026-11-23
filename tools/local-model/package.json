@@ -1,0 +1,7 @@
+{
+  "name": "ketu-local-model",
+  "private": true,
+  "type": "module",
+  "scripts": { "start": "node server.mjs" },
+  "dependencies": { "node-llama-cpp": "3.22.3" }
+}
