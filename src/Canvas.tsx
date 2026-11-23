@@ -15,6 +15,7 @@ type Gesture = {
   points?: Point[]
   add?: boolean
   side?: Side
+  corner?: 'nw' | 'ne' | 'sw' | 'se'
 }
 
 interface Props {
@@ -146,6 +147,7 @@ export default function Canvas({ project, svgRef, tool, selected, onSelect, onCo
     const client = { x: event.clientX, y: event.clientY }
     const item = getTarget(target)
     const handle = target.getAttribute('data-handle')
+    const corner = target.getAttribute('data-corner') as Gesture['corner']
     const add = event.shiftKey
     let next: Gesture
     if (tool === 'hand' || event.button === 1 || space) {
@@ -160,7 +162,7 @@ export default function Canvas({ project, svgRef, tool, selected, onSelect, onCo
         ? selected.includes(item.id) ? selected.filter(id => !group.includes(id)) : [...new Set([...selected, ...group])]
         : selected.includes(item.id) ? selected : group
       onSelect(ids)
-      next = { mode: handle === 'rotate' || handle === 'resize' ? handle : 'move', start: startPoint, client, item, ids }
+      next = { mode: handle === 'rotate' || handle === 'resize' ? handle : 'move', start: startPoint, client, item, ids, corner }
     } else if (tool === 'select') {
       if (!add) onSelect([])
       next = { mode: 'marquee', start: startPoint, client, add }
@@ -212,11 +214,16 @@ export default function Canvas({ project, svgRef, tool, selected, onSelect, onCo
         const angle = Math.atan2(point.y - c.y, point.x - c.x) - Math.atan2(g.start.y - c.y, g.start.x - c.x)
         return { ...item, rotation: round((item.rotation + angle * 180 / Math.PI) % 360) }
       }
-      const local = rotateVector(delta, -item.rotation)
-      const width = Math.max(14, fitGrid(item.width + local.x, snap))
-      const height = Math.max(14, fitGrid(item.height + local.y, snap))
-      const shift = rotateVector({ x: (width - item.width) / 2, y: (height - item.height) / 2 }, item.rotation)
-      return { ...item, width, height, x: round(c.x + shift.x - width / 2), y: round(c.y + shift.y - height / 2) }
+      const local = rotateVector({ x: point.x - c.x, y: point.y - c.y }, -item.rotation)
+      const corner = g.corner ?? 'se'
+      const signX = corner.includes('e') ? 1 : -1
+      const signY = corner.includes('s') ? 1 : -1
+      const opposite = { x: -signX * item.width / 2, y: -signY * item.height / 2 }
+      const pointer = { x: signX * Math.max(7, Math.abs(local.x)), y: signY * Math.max(7, Math.abs(local.y)) }
+      const width = Math.max(14, fitGrid(Math.abs(pointer.x - opposite.x), snap))
+      const height = Math.max(14, fitGrid(Math.abs(pointer.y - opposite.y), snap))
+      const newCenter = rotateVector({ x: (pointer.x + opposite.x) / 2, y: (pointer.y + opposite.y) / 2 }, item.rotation)
+      return { ...item, width, height, x: round(c.x + newCenter.x - width / 2), y: round(c.y + newCenter.y - height / 2) }
     })
   }
 

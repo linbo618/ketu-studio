@@ -124,9 +124,16 @@ export const Drawing = forwardRef<SVGSVGElement, Props>(function Drawing(
         return <g key={item.id} transform={'rotate(' + item.rotation + ' ' + c.x + ' ' + c.y + ')'}>
           <rect x={item.x - 3} y={item.y - 3} width={item.width + 6} height={item.height + 6} fill="none" stroke="#16845f" strokeWidth="1.5" strokeDasharray={item.id === pending ? '5 3' : undefined} pointerEvents="none" />
           {handle && <>
-            <line x1={c.x} y1={item.y - 4} x2={c.x} y2={item.y - 26} stroke="#16845f" pointerEvents="none" />
-            <circle cx={c.x} cy={item.y - 27} r="6" className="rotate-handle" data-handle="rotate" data-shape={item.id} fill="white" stroke="#16845f" strokeWidth="1.7" />
-            <rect x={x2 - 4} y={y2 - 4} width="12" height="12" rx="2" className="resize-handle" data-handle="resize" data-shape={item.id} fill="white" stroke="#16845f" strokeWidth="1.7" />
+            <line x1={c.x} y1={item.y - 4} x2={c.x} y2={item.y - 38} stroke="#16845f" pointerEvents="none" />
+            <circle cx={c.x} cy={item.y - 45} r="6" className="rotate-handle" data-handle="rotate" data-shape={item.id} fill="white" stroke="#16845f" strokeWidth="1.7" />
+            {([
+              ['nw', item.x - 6, item.y - 6, 'nwse-resize'],
+              ['ne', x2 - 6, item.y - 6, 'nesw-resize'],
+              ['sw', item.x - 6, y2 - 6, 'nesw-resize'],
+              ['se', x2 - 6, y2 - 6, 'nwse-resize'],
+            ] as const).map(([corner, x, y, cursor]) => <rect key={corner} x={x} y={y} width="12" height="12" rx="2"
+              className="resize-handle" data-handle="resize" data-corner={corner} data-shape={item.id}
+              style={{ cursor }} fill="white" stroke="#16845f" strokeWidth="1.7" />)}
           </>}
         </g>
       })}
