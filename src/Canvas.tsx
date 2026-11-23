@@ -1,11 +1,11 @@
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type RefObject } from 'react'
 import { Blocks, Plus } from 'lucide-react'
 import { Drawing } from './Drawing'
-import { bounds, center, connector, fitGrid, isLine, isNode, rotateVector, round, shape, type Diagram, type Point, type Shape, type Tool } from './model'
+import { bounds, center, connector, fitGrid, isLine, isNode, lineEnds, rotateVector, round, shape, type Diagram, type Point, type Shape, type Tool } from './model'
 import { addLink, nearestNode, type Side } from './graphEdit'
 
 type Gesture = {
-  mode: 'pan' | 'draw' | 'move' | 'rotate' | 'resize' | 'marquee' | 'link'
+  mode: 'pan' | 'draw' | 'move' | 'rotate' | 'resize' | 'marquee' | 'link' | 'endpoint'
   start: Point
   client: Point
   pan?: Point
@@ -17,6 +17,7 @@ type Gesture = {
   side?: Side
   corner?: 'nw' | 'ne' | 'sw' | 'se'
   nodeClick?: boolean
+  endpoint?: 'from' | 'to'
 }
 
 interface Props {
@@ -162,6 +163,24 @@ export default function Canvas({ project, svgRef, tool, selected, onSelect, onCo
     onSelect([item.id])
   }
 
+  function moveEndpoint(g: Gesture, point: Point) {
+    const item = g.item!
+    const byId = new Map(project.shapes.map(shape => [shape.id, shape]))
+    const [oldFrom, oldTo] = lineEnds(item, byId)
+    const otherNode = g.endpoint === 'from' ? item.to : item.from
+    const snapped = nearestNode(project, point, otherNode ?? item.id, 24 / scale)
+    const nextFrom = g.endpoint === 'from' ? snapped?.id : item.from
+    const nextTo = g.endpoint === 'to' ? snapped?.id : item.to
+    const from = g.endpoint === 'from' ? snapped ? center(snapped) : point : oldFrom
+    const to = g.endpoint === 'to' ? snapped ? center(snapped) : point : oldTo
+    const shapes = project.shapes.map(shape => shape.id === item.id ? {
+      ...shape, x: (from.x + to.x) / 2, y: (from.y + to.y) / 2,
+      width: to.x - from.x, height: to.y - from.y, rotation: 0,
+      from: nextFrom, to: nextTo,
+    } : shape)
+    return { shapes, snapped }
+  }
+
   function start(event: ReactPointerEvent<HTMLDivElement>) {
     if (event.button !== 0 && event.button !== 1) return
     const target = event.target as Element
@@ -171,6 +190,7 @@ export default function Canvas({ project, svgRef, tool, selected, onSelect, onCo
     const item = getTarget(target)
     const handle = target.getAttribute('data-handle')
     const corner = target.getAttribute('data-corner') as Gesture['corner']
+    const endpoint = target.getAttribute('data-endpoint') as Gesture['endpoint']
     const add = event.shiftKey
     let next: Gesture
     if (tool === 'hand' || event.button === 1 || space) {
@@ -184,6 +204,9 @@ export default function Canvas({ project, svgRef, tool, selected, onSelect, onCo
     } else if (tool !== 'select' && target.closest('svg[data-diagram]')) {
       const point = { x: fitGrid(startPoint.x, snap && tool !== 'pen'), y: fitGrid(startPoint.y, snap && tool !== 'pen') }
       next = { mode: 'draw', start: point, client, item: shape(tool, point.x, point.y), target: tool === 'arrow' && item && isNode(item) ? item : undefined, points: [startPoint] }
+    } else if (tool === 'select' && item && handle === 'endpoint' && endpoint) {
+      onSelect([item.id])
+      next = { mode: 'endpoint', start: startPoint, client, item, ids: [item.id], endpoint }
     } else if (tool === 'select' && item) {
       const group = item.group ? project.shapes.filter(other => !other.hidden && other.group === item.group).map(other => other.id) : [item.id]
       const ids = add
@@ -261,7 +284,11 @@ export default function Canvas({ project, svgRef, tool, selected, onSelect, onCo
     const delta = { x: event.clientX - g.client.x, y: event.clientY - g.client.y }
     const moved = Math.hypot(delta.x, delta.y) > 3
     const point = locate(event.clientX, event.clientY)
-    if (g.mode === 'link') {
+    if (g.mode === 'endpoint') {
+      const result = moveEndpoint(g, point)
+      if (final) onCommit(result.shapes, [g.item!.id])
+      else setPreview(result.shapes)
+    } else if (g.mode === 'link') {
       const from = g.item!
       const target = moved ? nearestNode(project, point, from.id, 20 / scale) : undefined
       if (!final) setLink({ from: g.start, to: target ? center(target) : point, target: target?.id })

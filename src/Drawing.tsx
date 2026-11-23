@@ -115,7 +115,15 @@ export const Drawing = forwardRef<SVGSVGElement, Props>(function Drawing(
       {visible.filter(item => selected.includes(item.id) || item.id === pending).map(item => {
         if (isLine(item)) {
           const [a, b] = lineEnds(item, byId)
-          return <path key={item.id} d={routeLine(a, b, item.route).path} fill="none" stroke="#12895d" strokeWidth="1.5" strokeDasharray="4 4" pointerEvents="none" />
+          return <g key={item.id}>
+            <path d={routeLine(a, b, item.route).path} fill="none" stroke="#12895d" strokeWidth="1.5" strokeDasharray="4 4" pointerEvents="none" />
+            {item.kind === 'arrow' && <g className="endpoint-handles">
+              <circle cx={a.x} cy={a.y} r="7" data-handle="endpoint" data-endpoint="from" data-shape={item.id}
+                fill="white" stroke="#c16b3e" strokeWidth="2" />
+              <circle cx={b.x} cy={b.y} r="7" data-handle="endpoint" data-endpoint="to" data-shape={item.id}
+                fill="white" stroke="#c16b3e" strokeWidth="2" />
+            </g>}
+          </g>
         }
         const c = center(item)
         const handle = selected.length === 1 && item.id !== pending
