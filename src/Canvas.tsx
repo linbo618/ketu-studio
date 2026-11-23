@@ -182,7 +182,7 @@ export default function Canvas({ project, svgRef, tool, selected, onSelect, onCo
   }
 
   function start(event: ReactPointerEvent<HTMLDivElement>) {
-    if (event.button !== 0 && event.button !== 1) return
+    if (event.button !== 0 && event.button !== 1 && event.button !== 2) return
     const target = event.target as Element
     if (target.closest('button')) return
     const startPoint = locate(event.clientX, event.clientY)
@@ -193,7 +193,7 @@ export default function Canvas({ project, svgRef, tool, selected, onSelect, onCo
     const endpoint = target.getAttribute('data-endpoint') as Gesture['endpoint']
     const add = event.shiftKey
     let next: Gesture
-    if (tool === 'hand' || event.button === 1 || space) {
+    if (tool === 'hand' || event.button === 1 || event.button === 2 || space) {
       setGrabbing(true)
       next = { mode: 'pan', start: startPoint, client, pan }
     } else if (tool === 'arrow' && item && isNode(item)) {
@@ -373,7 +373,7 @@ export default function Canvas({ project, svgRef, tool, selected, onSelect, onCo
   }
 
   return <div ref={view} className={'viewport tool-' + (space ? 'hand' : tool) + (grabbing ? ' grabbing' : '')}
-    onPointerDown={start} onPointerMove={event => {
+    onPointerDown={start} onContextMenu={event => event.preventDefault()} onPointerMove={event => {
       const item = getTarget(event.target as Element)
       if (tool === 'arrow' && item && isNode(item)) setHoveredNode(item.id)
       else if (!(event.target as Element).closest('.node-port')) setHoveredNode(undefined)
