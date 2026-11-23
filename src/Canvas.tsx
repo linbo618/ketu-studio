@@ -54,6 +54,7 @@ export default function Canvas({ project, svgRef, tool, selected, onSelect, onCo
   const [space, setSpace] = useState(false)
   const [grabbing, setGrabbing] = useState(false)
   const [link, setLink] = useState<{ from: Point; to: Point; target?: string }>()
+  const [hoveredNode, setHoveredNode] = useState<string>()
   const [editing, setEditing] = useState<{ item: Shape; text: string }>()
   const editor = useRef<HTMLTextAreaElement>(null)
   const paddingX = size.x < 500 ? 20 : 52
@@ -62,6 +63,9 @@ export default function Canvas({ project, svgRef, tool, selected, onSelect, onCo
   const paperHeight = project.height * scale
   const activeNode = tool === 'select' && selected.length === 1 && !preview && !editing
     ? project.shapes.find(item => item.id === selected[0] && isNode(item) && !item.hidden) : undefined
+  const connectionNode = tool === 'arrow'
+    ? project.shapes.find(item => item.id === (hoveredNode ?? pending) && isNode(item) && !item.hidden)
+    : undefined
 
   useEffect(() => {
     const observer = new ResizeObserver(([entry]) => setSize({ x: entry.contentRect.width, y: entry.contentRect.height }))
@@ -70,7 +74,7 @@ export default function Canvas({ project, svgRef, tool, selected, onSelect, onCo
   }, [])
 
   useEffect(() => { setPan(origin) }, [project.id, reset])
-  useEffect(() => { setPending(undefined); setEditing(undefined) }, [project.id, tool])
+  useEffect(() => { setPending(undefined); setHoveredNode(undefined); setEditing(undefined) }, [project.id, tool])
   useEffect(() => {
     if (editing && document.activeElement !== editor.current) {
       editor.current?.focus()
@@ -139,6 +143,24 @@ export default function Canvas({ project, svgRef, tool, selected, onSelect, onCo
     view.current?.setPointerCapture(event.pointerId)
   }
 
+  function finishNodeLink(item: Shape) {
+    const source = pending ? project.shapes.find(shape => shape.id === pending && isNode(shape)) : undefined
+    if (!source) {
+      setPending(item.id)
+      onSelect([item.id])
+      return
+    }
+    if (source.id === item.id) {
+      setPending(undefined)
+      onSelect([item.id])
+      return
+    }
+    const shapes = addLink(project.shapes, source, item, { route: 'elbow' })
+    if (shapes !== project.shapes) onCommit(shapes, [item.id])
+    setPending(undefined)
+    onSelect([item.id])
+  }
+
   function start(event: ReactPointerEvent<HTMLDivElement>) {
     if (event.button !== 0 && event.button !== 1) return
     const target = event.target as Element
@@ -153,6 +175,9 @@ export default function Canvas({ project, svgRef, tool, selected, onSelect, onCo
     if (tool === 'hand' || event.button === 1 || space) {
       setGrabbing(true)
       next = { mode: 'pan', start: startPoint, client, pan }
+    } else if (tool === 'arrow' && item && isNode(item)) {
+      finishNodeLink(item)
+      return
     } else if (tool !== 'select' && target.closest('svg[data-diagram]')) {
       const point = { x: fitGrid(startPoint.x, snap && tool !== 'pen'), y: fitGrid(startPoint.y, snap && tool !== 'pen') }
       next = { mode: 'draw', start: point, client, item: shape(tool, point.x, point.y), target: tool === 'arrow' && item && isNode(item) ? item : undefined, points: [startPoint] }
@@ -313,7 +338,12 @@ export default function Canvas({ project, svgRef, tool, selected, onSelect, onCo
   }
 
   return <div ref={view} className={'viewport tool-' + (space ? 'hand' : tool) + (grabbing ? ' grabbing' : '')}
-    onPointerDown={start} onPointerMove={event => update(event, false)}
+    onPointerDown={start} onPointerMove={event => {
+      const item = getTarget(event.target as Element)
+      if (tool === 'arrow' && item && isNode(item)) setHoveredNode(item.id)
+      else if (!(event.target as Element).closest('.node-port')) setHoveredNode(undefined)
+      update(event, false)
+    }}
     onPointerUp={event => update(event, true)} onPointerCancel={cancel} onLostPointerCapture={cancel}
     onDoubleClick={event => {
       if (tool !== 'select') return
@@ -329,13 +359,23 @@ export default function Canvas({ project, svgRef, tool, selected, onSelect, onCo
         {link && <line x1={link.from.x} y1={link.from.y} x2={link.to.x} y2={link.to.y}
           stroke="#16845f" strokeWidth="2" strokeDasharray="6 4" pointerEvents="none" />}
       </Drawing>
-      {activeNode && !link && ports.map(port => {
-        const location = position(activeNode, port.side, 15 / scale)
-        return <button key={port.side} className={'node-port port-' + port.side} type="button"
-          title="点击扩展节点，拖到其他节点连线" aria-label={{ right: '向右扩展', bottom: '向下扩展', left: '向左扩展', top: '向上扩展' }[port.side]}
+      {(activeNode || connectionNode) && !link && ports.map(port => {
+        const node = connectionNode ?? activeNode!
+        const location = position(node, port.side, 15 / scale)
+        return <button key={port.side} className={'node-port port-' + port.side + (connectionNode ? ' connection-port' : '')} type="button"
+          title={connectionNode ? '点击此连接点完成箭头，拖动创建预览' : '点击扩展节点，拖到其他节点连线'}
+          aria-label={{ right: '向右连接点', bottom: '向下连接点', left: '向左连接点', top: '向上连接点' }[port.side]}
           style={{ left: location.x * scale, top: location.y * scale }}
-          onPointerDown={event => beginLink(event, activeNode, port.side)}
-          onClick={event => { if (event.detail === 0) onExpand(position(activeNode, port.side, 148), activeNode, port.side) }}><Plus size={13} /></button>
+          onPointerDown={event => {
+            if (connectionNode && pending && connectionNode.id !== pending) {
+              event.stopPropagation()
+              event.preventDefault()
+              finishNodeLink(connectionNode)
+            } else beginLink(event, node, port.side)
+          }}
+          onClick={event => {
+            if (!connectionNode && event.detail === 0) onExpand(position(node, port.side, 148), node, port.side)
+          }}>{connectionNode ? <span className="port-dot" /> : <Plus size={13} />}</button>
       })}
       {editing && <textarea className="inline-editor" aria-label="在画布编辑文字" maxLength={800} ref={editor} value={editing.text}
         style={{ left: Math.max(4, Math.min(paperWidth - 136, center(editing.item).x * scale - 70)),
@@ -354,7 +394,7 @@ export default function Canvas({ project, svgRef, tool, selected, onSelect, onCo
         <button onClick={onTemplates}>浏览模板</button>
       </div>}
     </div>
-    {pending && <div className="canvas-tip">点击另一个图形完成连线</div>}
+    {tool === 'arrow' && <div className="canvas-tip">{pending ? '已选择起点，点击另一个节点作为终点' : '点击节点选择箭头起点，再点击终点'}</div>}
     {activeNode && !link && !pending && <div className="port-hint">点击 ＋ 扩展节点 · 拖动 ＋ 连线</div>}
   </div>
 }
