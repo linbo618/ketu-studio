@@ -16,6 +16,7 @@ type Gesture = {
   add?: boolean
   side?: Side
   corner?: 'nw' | 'ne' | 'sw' | 'se'
+  nodeClick?: boolean
 }
 
 interface Props {
@@ -176,7 +177,9 @@ export default function Canvas({ project, svgRef, tool, selected, onSelect, onCo
       setGrabbing(true)
       next = { mode: 'pan', start: startPoint, client, pan }
     } else if (tool === 'arrow' && item && isNode(item)) {
-      finishNodeLink(item)
+      event.preventDefault()
+      gesture.current = { mode: 'link', item, start: center(item), client, nodeClick: true }
+      event.currentTarget.setPointerCapture(event.pointerId)
       return
     } else if (tool !== 'select' && target.closest('svg[data-diagram]')) {
       const point = { x: fitGrid(startPoint.x, snap && tool !== 'pen'), y: fitGrid(startPoint.y, snap && tool !== 'pen') }
@@ -262,15 +265,20 @@ export default function Canvas({ project, svgRef, tool, selected, onSelect, onCo
       const from = g.item!
       const target = moved ? nearestNode(project, point, from.id, 20 / scale) : undefined
       if (!final) setLink({ from: g.start, to: target ? center(target) : point, target: target?.id })
-      else if (target) {
+      else if (!moved && g.nodeClick) {
+        finishNodeLink(from)
+      } else if (target) {
         const shapes = addLink(project.shapes, from, target)
         if (shapes !== project.shapes) onCommit(shapes, [target.id])
         else onSelect([target.id])
       } else {
-        const c = center(from)
-        const rightOrLeft = Math.abs(point.x - c.x) >= Math.abs(point.y - c.y)
-        const side = moved ? rightOrLeft ? point.x > c.x ? 'right' : 'left' : point.y > c.y ? 'bottom' : 'top' : g.side!
-        onExpand(moved ? point : position(from, side, 148), from, side)
+        if (tool === 'arrow') finishNodeLink(from)
+        else {
+          const c = center(from)
+          const rightOrLeft = Math.abs(point.x - c.x) >= Math.abs(point.y - c.y)
+          const side = moved ? rightOrLeft ? point.x > c.x ? 'right' : 'left' : point.y > c.y ? 'bottom' : 'top' : g.side!
+          onExpand(moved ? point : position(from, side, 148), from, side)
+        }
       }
     } else if (g.mode === 'pan') {
       setPan({ x: g.pan!.x + delta.x, y: g.pan!.y + delta.y })
