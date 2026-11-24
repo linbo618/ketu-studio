@@ -88,7 +88,7 @@ export function connector(from: Shape, to: Shape, options: Partial<Shape> = {}) 
   return shape('arrow', from.x + from.width / 2, from.y + from.height / 2, {
     width: to.x + to.width / 2 - from.x - from.width / 2,
     height: to.y + to.height / 2 - from.y - from.height / 2,
-    from: from.id, to: to.id, stroke: '#7c998a', strokeWidth: 2, ...options,
+    from: from.id, to: to.id, stroke: '#668f7d', strokeWidth: 2.8, ...options,
   })
 }
 

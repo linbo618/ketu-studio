@@ -96,7 +96,7 @@ export const Drawing = forwardRef<SVGSVGElement, Props>(function Drawing(
         if (!isLine(item)) return <g key={item.id} {...attributes}><ShapeView item={item} /></g>
         const [a, b] = lineEnds(item, byId)
         const { path, angle, label } = routeLine(a, b, item.route)
-        const size = Math.max(8, item.strokeWidth * 3)
+        const size = Math.max(13, item.strokeWidth * 4.5)
         const arrow = [[b.x, b.y], ...[-.47, .47].map(offset => [
           b.x - size * Math.cos(angle + offset), b.y - size * Math.sin(angle + offset),
         ])].map(point => point.join(',')).join(' ')
@@ -118,9 +118,9 @@ export const Drawing = forwardRef<SVGSVGElement, Props>(function Drawing(
           return <g key={item.id}>
             <path d={routeLine(a, b, item.route).path} fill="none" stroke="#12895d" strokeWidth="1.5" strokeDasharray="4 4" pointerEvents="none" />
             {item.kind === 'arrow' && <g className="endpoint-handles">
-              <circle cx={a.x} cy={a.y} r="7" data-handle="endpoint" data-endpoint="from" data-shape={item.id}
+              <circle cx={a.x} cy={a.y} r="8" data-handle="endpoint" data-endpoint="from" data-shape={item.id}
                 fill="white" stroke="#c16b3e" strokeWidth="2" />
-              <circle cx={b.x} cy={b.y} r="7" data-handle="endpoint" data-endpoint="to" data-shape={item.id}
+              <circle cx={b.x} cy={b.y} r="8" data-handle="endpoint" data-endpoint="to" data-shape={item.id}
                 fill="white" stroke="#c16b3e" strokeWidth="2" />
             </g>}
           </g>
