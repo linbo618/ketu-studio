@@ -13,24 +13,24 @@ try { await access(modelPath) } catch {
 
 const llama = await getLlama({ gpu: false, logLevel: 'error' })
 const model = await llama.loadModel({ modelPath })
-const context = await model.createContext({ contextSize: 4096, threads: 6 })
+const context = await model.createContext({ contextSize: 2048, threads: 10 })
 const kinds = ['terminal', 'process', 'decision', 'database', 'document', 'actor', 'component', 'topic',
   'input', 'subprocess', 'delay', 'cloud', 'queue', 'interface', 'concept', 'note', 'milestone', 'task']
 const text = maxLength => ({ type: 'string', maxLength })
 const grammar = await llama.createGrammarForJsonSchema({
   type: 'object', properties: {
     title: text(72),
-    nodes: { type: 'array', minItems: 2, maxItems: 14, items: { type: 'object', properties: {
+    nodes: { type: 'array', minItems: 2, maxItems: 6, items: { type: 'object', properties: {
       id: text(12), label: text(72), type: { enum: kinds },
     } } },
-    edges: { type: 'array', minItems: 1, maxItems: 20, items: { type: 'object', properties: {
+    edges: { type: 'array', minItems: 1, maxItems: 8, items: { type: 'object', properties: {
       from: text(12), to: text(12),
     } } },
   },
 })
 
 const example = '{"title":"作业提交","nodes":[{"id":"1","label":"准备文件","type":"process"},{"id":"2","label":"上传作业","type":"process"}],"edges":[{"from":"1","to":"2"}]}'
-const systemPrompt = '根据用户需求生成中文的有向流程图 JSON。节点编号用连续数字字符串，edges 必须引用已有 nodes 的 id。JSON 示例：' + example
+const systemPrompt = '根据用户需求生成中文的有向流程图 JSON。先参考当前画布上下文，保留相关节点。首轮生成 2–8 个节点、至多 12 条边。节点编号用连续数字字符串，edges 必须引用已有 nodes 的 id。JSON 示例：' + example
 let processing = false
 
 const server = http.createServer(async (req, res) => {
@@ -70,8 +70,8 @@ const server = http.createServer(async (req, res) => {
     if (typeof brief !== 'string' || !brief.trim()) { res.writeHead(400, headers).end('{}'); return }
     sequence = context.getSequence()
     const session = new LlamaChatSession({ contextSequence: sequence, systemPrompt })
-    const content = await session.prompt(brief.slice(0, 2600), {
-      grammar, maxTokens: 1000, temperature: 0.25, seed: 9,
+    const content = await session.prompt(brief.slice(0, 1400), {
+      grammar, maxTokens: 420, temperature: 0.2, seed: 9,
       signal: AbortSignal.any([controller.signal, AbortSignal.timeout(82000)]),
     })
     res.writeHead(200, headers).end(JSON.stringify({ choices: [{ message: { content } }] }))

@@ -101,8 +101,8 @@ export default function Generator({ onClose, onUse, connection, onConnection, an
   useEffect(() => () => { request.current?.abort(); request.current = null }, [])
 
   const brief = description.trim() || samples[family]
-  const currentNodes = project.shapes.filter(item => isNode(item) && !item.hidden).slice(0, 80)
-  const currentEdges = project.shapes.filter(item => item.from && item.to && !item.hidden).slice(0, 120)
+  const currentNodes = project.shapes.filter(item => isNode(item) && !item.hidden).slice(0, 24)
+  const currentEdges = project.shapes.filter(item => item.from && item.to && !item.hidden).slice(0, 36)
   const canvasContext = '\n当前画布上下文：' + JSON.stringify({
     name: project.name, width: project.width, height: project.height,
     nodes: currentNodes.map(item => ({ id: item.id, type: item.symbol ?? item.kind, label: item.text, x: Math.round(item.x), y: Math.round(item.y), width: Math.round(item.width), height: Math.round(item.height) })),
@@ -110,7 +110,8 @@ export default function Generator({ onClose, onUse, connection, onConnection, an
   })
   const continuation = anchor && includeContext ? '\n续写要求：选中节点是「' + (anchor.text || '当前节点') +
     '」，生成可以接在该节点之后的新分支，并保留当前布局关系。' : ''
-  const prompt = graphPrompt + '\n图形类型：' + family + canvasContext + continuation + '\n需求：' + brief
+  const modelPrompt = '图形类型：' + family + canvasContext + continuation + '\n需求：' + brief
+  const prompt = graphPrompt + '\n' + modelPrompt
 
   const update = (fields: Partial<ModelConnection>) => onConnection({ ...connection, ...fields })
 
@@ -138,7 +139,7 @@ export default function Generator({ onClose, onUse, connection, onConnection, an
       }
       const result = mode === 'paste' ? fromModelResult(pasted, direction)
         : mode === 'local' ? fromOutline(description, direction)
-          : await fromAI(prompt, direction, family, {
+          : await fromAI(modelPrompt, direction, family, {
             endpoint: await modelEndpoint(connection.provider, connection.endpoint, controller.signal),
             model: connection.model, key: connection.key.trim(),
           }, controller.signal)
