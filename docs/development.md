@@ -11,7 +11,7 @@
 | `src/templates.ts`、`src/generate.ts` | 模板、文字解析、模型响应校验与自动布局 |
 | `src/export.ts` | 项目文件下载、SVG 清理和 PNG 渲染 |
 | `src/graphEdit.ts`、`src/symbols.ts`、`src/NodeGlyph.tsx` | 自动连线、避让插入、画布扩展和节点符号 |
-| `src/Generator.tsx`、`tools/local-model/server.mjs` | 生成预览、模型连接和本机 Qwen 推理入口 |
+| `src/Generator.tsx`、`tools/local-model/server.mjs` | 当前画布上下文、结构化生成阶段、模型连接和本机 Qwen 推理入口 |
 
 ## 数据和交互
 

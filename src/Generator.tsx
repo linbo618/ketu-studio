@@ -3,7 +3,7 @@ import { Braces, ChevronDown, ClipboardCopy, PencilRuler, Settings2, Sparkles } 
 import { Modal } from './Dialogs'
 import { Drawing } from './Drawing'
 import { diagramFamilies, fromAI, fromModelResult, fromOutline, graphPrompt, type DiagramFamily } from './generate'
-import type { Diagram, Direction, Shape } from './model'
+import { isNode, type Diagram, type Direction, type Shape } from './model'
 
 const providers = {
   qwen: { label: '本机 Qwen', endpoint: 'http://127.0.0.1:11435/v1/chat/completions', proxy: 'qwen' },
@@ -14,6 +14,7 @@ const providers = {
 }
 type Provider = keyof typeof providers
 type Mode = 'ai' | 'paste' | 'local'
+type Stage = 'idle' | 'reading' | 'interpreting' | 'planning' | 'rendering' | 'done'
 export type ModelConnection = { provider: Provider; endpoint: string; model: string; key: string; mode: Mode }
 const storageKey = 'ketu-studio:model-settings'
 export const localQwen: ModelConnection = { provider: 'qwen', endpoint: '', model: 'Qwen2.5-0.5B-Instruct', key: '', mode: 'ai' }
@@ -53,6 +54,12 @@ const samples: Record<DiagramFamily, string> = {
   '数据管道图': '从 CSV 和问卷接口收集数据，经格式校验去重后写入数据库，最后生成统计报表。',
 }
 const localExample = '标题：课程作业提交\n开始\n准备材料\n检查格式？\n上传作业\n确认提交'
+const stages: { id: Stage; label: string }[] = [
+  { id: 'reading', label: '读取当前画布' },
+  { id: 'interpreting', label: '理解需求' },
+  { id: 'planning', label: '规划节点和连线' },
+  { id: 'rendering', label: '生成并布局' },
+]
 
 async function modelEndpoint(provider: Provider, custom: string, signal: AbortSignal) {
   if (provider === 'custom') return custom.trim()
@@ -85,6 +92,7 @@ export default function Generator({ onClose, onUse, connection, onConnection, an
   const [showPrompt, setShowPrompt] = useState(false)
   const [includeContext, setIncludeContext] = useState(false)
   const [draft, setDraft] = useState<Diagram>()
+  const [stage, setStage] = useState<Stage>('idle')
   const request = useRef<AbortController | null>(null)
   const mode = connection.mode
   const provider = providers[connection.provider]
@@ -92,9 +100,16 @@ export default function Generator({ onClose, onUse, connection, onConnection, an
   useEffect(() => () => { request.current?.abort(); request.current = null }, [])
 
   const brief = description.trim() || samples[family]
-  const context = anchor && includeContext ? '\n当前图：' + project.name + '。选中节点：' + (anchor.text || '当前节点') +
-    '。生成可接在该节点之后的新分支，省略已经存在的该节点。' : ''
-  const prompt = graphPrompt + '\n图形类型：' + family + '\n需求：' + brief + context
+  const currentNodes = project.shapes.filter(item => isNode(item) && !item.hidden).slice(0, 80)
+  const currentEdges = project.shapes.filter(item => item.from && item.to && !item.hidden).slice(0, 120)
+  const canvasContext = '\n当前画布上下文：' + JSON.stringify({
+    name: project.name, width: project.width, height: project.height,
+    nodes: currentNodes.map(item => ({ id: item.id, type: item.symbol ?? item.kind, label: item.text, x: Math.round(item.x), y: Math.round(item.y), width: Math.round(item.width), height: Math.round(item.height) })),
+    edges: currentEdges.map(item => ({ from: item.from, to: item.to, label: item.text, route: item.route ?? 'straight' })),
+  })
+  const continuation = anchor && includeContext ? '\n续写要求：选中节点是「' + (anchor.text || '当前节点') +
+    '」，生成可以接在该节点之后的新分支，并保留当前布局关系。' : ''
+  const prompt = graphPrompt + '\n图形类型：' + family + canvasContext + continuation + '\n需求：' + brief
 
   const update = (fields: Partial<ModelConnection>) => onConnection({ ...connection, ...fields })
 
@@ -106,7 +121,14 @@ export default function Generator({ onClose, onUse, connection, onConnection, an
     request.current = controller
     setBusy(true)
     setDraft(undefined)
+    setStage('reading')
     try {
+      await new Promise(resolve => setTimeout(resolve, 220))
+      if (controller.signal.aborted) throw new Error('已取消生成。')
+      setStage('interpreting')
+      await new Promise(resolve => setTimeout(resolve, 220))
+      if (controller.signal.aborted) throw new Error('已取消生成。')
+      setStage('planning')
       if (mode === 'ai' && !connection.model.trim()) { setSettings(true); throw new Error('先填写已安装或可以访问的模型 ID。') }
       if (mode === 'ai' && connection.provider === 'custom' && !connection.endpoint.trim()) { setSettings(true); throw new Error('先填写模型接口地址。') }
       if (mode === 'ai' && (connection.provider === 'deepseek' || connection.provider === 'openai') && !connection.key.trim()) {
@@ -115,13 +137,21 @@ export default function Generator({ onClose, onUse, connection, onConnection, an
       }
       const result = mode === 'paste' ? fromModelResult(pasted, direction)
         : mode === 'local' ? fromOutline(description, direction)
-          : await fromAI(description + context, direction, family, {
+          : await fromAI(prompt, direction, family, {
             endpoint: await modelEndpoint(connection.provider, connection.endpoint, controller.signal),
             model: connection.model, key: connection.key.trim(),
           }, controller.signal)
-      if (request.current === controller) setDraft(result)
+      if (request.current === controller) {
+        setStage('rendering')
+        await new Promise(resolve => setTimeout(resolve, 180))
+        setDraft(result)
+        setStage('done')
+      }
     } catch (cause) {
-      if (request.current === controller) setError(cause instanceof Error ? cause.message : '生成失败。')
+      if (request.current === controller) {
+        setStage('idle')
+        setError(cause instanceof Error ? cause.message : '生成失败。')
+      }
     } finally {
       if (request.current === controller) { request.current = null; setBusy(false) }
     }
@@ -131,6 +161,7 @@ export default function Generator({ onClose, onUse, connection, onConnection, an
     request.current?.abort()
     request.current = null
     setBusy(false)
+    setStage('idle')
     setError('已停止生成，可以修改需求后重试。')
   }
 
@@ -165,6 +196,10 @@ export default function Generator({ onClose, onUse, connection, onConnection, an
           <textarea id="outline" rows={3} maxLength={6000} value={description} onChange={event => setDescription(event.target.value)}
             placeholder={mode === 'local' ? '每行一个步骤，或用 → 分隔' : samples[family]} />
         </div>
+        <section className="canvas-context" aria-label="当前画布摘要">
+          <div><strong>当前画布</strong><span>{project.name} · {currentNodes.length} 个节点 · {currentEdges.length} 条连线</span></div>
+          <p>{currentNodes.length ? currentNodes.slice(0, 8).map(item => item.text || item.symbol || item.kind).join('、') + (currentNodes.length > 8 ? '…' : '') : '空白画布'}</p>
+        </section>
         {mode === 'ai' && <div className="connection-box">
           <button type="button" className="connection-toggle" aria-expanded={settings} onClick={() => setSettings(!settings)}>
             <Settings2 size={16} /><span>{connection.model ? provider.label + ' · ' + connection.model : '配置模型连接'}</span><ChevronDown size={15} />
@@ -195,6 +230,19 @@ export default function Generator({ onClose, onUse, connection, onConnection, an
         </>}
       </fieldset>
       {error && <p className="error" role="alert">{error}</p>}
+      {(busy || stage === 'done') && <section className="ai-process" aria-label="AI 生成过程">
+        <div className="process-heading"><strong>生成过程</strong><span>{stage === 'done' ? '已完成' : '进行中'}</span></div>
+        <div className="process-steps">{stages.map((item, index) => {
+          const currentIndex = stages.findIndex(stageItem => stageItem.id === stage)
+          const itemIndex = index
+          const done = stage === 'done' || currentIndex > itemIndex
+          const current = item.id === stage
+          return <div key={item.id} className={'process-step' + (done ? ' done' : '') + (current ? ' current' : '')}>
+            <span>{done ? '✓' : index + 1}</span><label>{item.label}</label>
+          </div>
+        })}</div>
+        {stage === 'done' && draft && <p className="process-result">已生成 {draft.shapes.filter(item => item.symbol).length} 个节点和 {draft.shapes.filter(item => item.from && item.to).length} 条连线，已完成自动布局。</p>}
+      </section>}
       {draft && <section className="draft-preview">
         <div><strong>{draft.name}</strong><span>{draft.shapes.filter(item => item.symbol).length} 个节点</span></div>
         <Drawing project={draft} />

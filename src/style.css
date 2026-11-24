@@ -252,6 +252,22 @@ kbd { font: 700 12px Consolas, monospace; background: #edf4ee; border-radius: 5p
 .row-options label { display: flex; align-items: center; gap: 8px; font-size: 13px; }
 .row-options .select-wrap { min-width: 125px; }
 .generation-context { background: #edf6ef; color: var(--forest); padding: 8px 10px; border-radius: 7px; font-size: 13px; }
+.canvas-context { border: 1px solid #dce9df; border-radius: 8px; padding: 9px 10px; background: #f7faf7; }
+.canvas-context > div { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 13px; }
+.canvas-context > div span { color: var(--muted); font-size: 12px; text-align: right; }
+.canvas-context p { color: #5b7065; font-size: 12px; line-height: 1.5; margin-top: 5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ai-process { border: 1px solid #cfe4d5; border-radius: 8px; padding: 10px; background: #f4faf5; }
+.process-heading { display: flex; justify-content: space-between; align-items: center; font-size: 13px; color: #245a44; }
+.process-heading span { color: #5b806d; font-size: 12px; }
+.process-steps { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 5px; margin-top: 9px; }
+.process-step { min-width: 0; display: flex; align-items: center; gap: 5px; color: #80948a; font-size: 11px; }
+.process-step span { width: 19px; height: 19px; border: 1px solid #cad9cf; border-radius: 50%; display: grid; place-items: center; flex: none; font-size: 10px; }
+.process-step.current { color: #1f684a; font-weight: 700; }
+.process-step.current span { border-color: #27865c; background: #dff2e6; color: #1f684a; }
+.process-step.done { color: #3e765b; }
+.process-step.done span { border-color: #7fba98; background: #d9efdf; color: #246447; }
+.process-step label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.process-result { color: #456d58; font-size: 12px; line-height: 1.5; margin-top: 8px; }
 .connection-box { border: 1px solid var(--line); border-radius: 8px; padding: 5px 10px; }
 .connection-toggle { display: flex; width: 100%; align-items: center; padding: 8px 0; gap: 8px; color: var(--forest); font-size: 13px; font-weight: 700; }
 .connection-toggle span { flex: 1; text-align: left; }
@@ -308,6 +324,7 @@ kbd { font: 700 12px Consolas, monospace; background: #edf4ee; border-radius: 5p
   .generator-modes button { gap: 4px; font-size: 11px; }
   .generator-modes button svg { width: 13px; }
   .connection-box .ai-fields { grid-template-columns: 1fr; }
+  .process-steps { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 
 @media (max-width: 410px) {
