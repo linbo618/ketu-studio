@@ -167,8 +167,7 @@ export default function Canvas({ project, svgRef, tool, selected, onSelect, onCo
     const item = g.item!
     const byId = new Map(project.shapes.map(shape => [shape.id, shape]))
     const [oldFrom, oldTo] = lineEnds(item, byId)
-    const otherNode = g.endpoint === 'from' ? item.to : item.from
-    const snapped = nearestNode(project, point, otherNode ?? item.id, 24 / scale)
+    const snapped = nearestNode(project, point, [item.id, item.from ?? '', item.to ?? ''], 24 / scale)
     const nextFrom = g.endpoint === 'from' ? snapped?.id : item.from
     const nextTo = g.endpoint === 'to' ? snapped?.id : item.to
     const from = g.endpoint === 'from' ? snapped ? center(snapped) : point : oldFrom

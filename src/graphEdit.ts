@@ -23,12 +23,13 @@ export function addLink(shapes: Shape[], from: Shape, to: Shape, options: Partia
   return [...shapes.slice(0, firstNode), edge, ...shapes.slice(firstNode)]
 }
 
-export function nearestNode(project: Diagram, point: Point, exclude: string, tolerance: number) {
+export function nearestNode(project: Diagram, point: Point, exclude: string | string[], tolerance: number) {
   let winner: Shape | undefined
   let distance = tolerance
+  const excluded = new Set(Array.isArray(exclude) ? exclude : [exclude])
   const byId = new Map(project.shapes.map(item => [item.id, item]))
   for (const item of [...project.shapes].reverse()) {
-    if (item.hidden || !isNode(item) || item.id === exclude) continue
+    if (item.hidden || !isNode(item) || excluded.has(item.id)) continue
     const box = bounds(item, byId)
     const gap = Math.hypot(point.x - clamp(point.x, box.x, box.x + box.width), point.y - clamp(point.y, box.y, box.y + box.height))
     if (gap >= distance) continue
