@@ -5,7 +5,9 @@
   "type": "module",
   "engines": { "node": "^20.19.0 || >=22.12.0" },
   "scripts": {
-    "dev": "vite",
+    "dev": "node tools/start-dev.mjs",
+    "dev:web": "vite",
+    "dev:model": "npm --prefix tools/local-model start",
     "check": "tsc --noEmit",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview"

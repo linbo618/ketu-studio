@@ -47,16 +47,16 @@ npm run preview
 
 #### 启动本机 Qwen
 
-在项目根目录执行以下 PowerShell 命令。首次需要约 491 MB 的 Qwen GGUF 模型文件。
+在项目根目录执行以下 PowerShell 命令。首次需要约 491 MB 的 Qwen GGUF 模型文件。以后直接运行 `npm.cmd run dev` 就会同时启动网页和本机 Qwen。
 
 ```powershell
 npm.cmd --prefix tools/local-model ci
 New-Item -ItemType Directory -Force tools/local-model/models
 curl.exe -L --fail --retry 3 -o tools/local-model/models/qwen-0.5b.gguf https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF/resolve/main/qwen2.5-0.5b-instruct-q4_k_m.gguf
-npm.cmd --prefix tools/local-model start
+npm.cmd run dev
 ```
 
-保持模型终端运行，并在另一终端运行 `npm run dev`。服务监听本机 `127.0.0.1:11435`。已有模型文件也可通过 `npm --prefix tools/local-model start -- 路径` 指定。
+启动脚本会先启动网页，再在本机加载模型。模型通常需要几十秒，终端出现「本机 Qwen 已就绪」后，AI 示意图可以直接使用。服务监听本机 `127.0.0.1:11435`。如果模型文件或本地模型依赖缺失，网页仍会启动，并在终端显示具体补齐命令。已有模型文件也可通过 `npm --prefix tools/local-model start -- 路径` 手动启动。
 
 ## 技术栈
 
