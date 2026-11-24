@@ -15,6 +15,7 @@ const providers = {
 type Provider = keyof typeof providers
 type Mode = 'ai' | 'paste' | 'local'
 type Stage = 'idle' | 'reading' | 'interpreting' | 'planning' | 'rendering' | 'done'
+type UseAction = 'current' | 'new' | 'append'
 export type ModelConnection = { provider: Provider; endpoint: string; model: string; key: string; mode: Mode }
 const storageKey = 'ketu-studio:model-settings'
 export const localQwen: ModelConnection = { provider: 'qwen', endpoint: '', model: 'Qwen2.5-0.5B-Instruct', key: '', mode: 'ai' }
@@ -75,7 +76,7 @@ async function modelEndpoint(provider: Provider, custom: string, signal: AbortSi
 
 export default function Generator({ onClose, onUse, connection, onConnection, anchor, project }: {
   onClose: () => void
-  onUse: (draft: Diagram, append: boolean) => void
+  onUse: (draft: Diagram, action: UseAction) => void
   connection: ModelConnection
   onConnection: (connection: ModelConnection) => void
   anchor?: Shape
@@ -165,9 +166,9 @@ export default function Generator({ onClose, onUse, connection, onConnection, an
     setError('已停止生成，可以修改需求后重试。')
   }
 
-  function useDraft(append: boolean) {
+  function useDraft(action: UseAction) {
     if (!draft) return
-    try { onUse(draft, append) }
+    try { onUse(draft, action) }
     catch (cause) { setError(cause instanceof Error ? cause.message : '无法接入当前项目。') }
   }
 
@@ -250,8 +251,9 @@ export default function Generator({ onClose, onUse, connection, onConnection, an
       <div className="dialog-footer generator-footer">
         {busy ? <><span role="status">模型生成中…</span><button type="button" className="outlined" onClick={stop}>停止</button></>
           : <><button className={draft ? 'outlined' : 'primary'} type="submit"><Sparkles size={16} />{draft ? '重新生成' : '生成预览'}</button>
-            {draft && <button type="button" className={anchor ? 'outlined' : 'primary'} onClick={() => useDraft(false)}>新建项目</button>}
-            {draft && anchor && <button type="button" className="primary" onClick={() => useDraft(true)}>接到选中节点</button>}</>}
+            {draft && <button type="button" className="primary" onClick={() => useDraft('current')}>应用到当前图</button>}
+            {draft && <button type="button" className="outlined" onClick={() => useDraft('new')}>新建副本</button>}
+            {draft && anchor && <button type="button" className="outlined" onClick={() => useDraft('append')}>接到选中节点</button>}</>}
       </div>
     </form>
   </Modal>

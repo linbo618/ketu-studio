@@ -10,7 +10,7 @@ interface Graph {
 
 export const diagramFamilies = ['流程图', '系统架构图', '思维导图', '项目路线图', '实验流程图', '数据管道图'] as const
 export type DiagramFamily = typeof diagramFamilies[number]
-export const graphPrompt = '只输出 JSON 图结构，参考 {"title":"选题","nodes":[{"id":"a","label":"开始","type":"terminal"},{"id":"b","label":"调研","type":"process"}],"edges":[{"from":"a","to":"b","label":""}]}。使用 2–30 个节点、至多 80 条有向边、唯一的节点 id。连线引用现有节点，避免自环。条件分支用 label 标出。节点使用简明中文。type 可用：' +
+export const graphPrompt = '先读取用户提供的当前画布上下文，再理解需求，规划修改，最后只输出完整的 JSON 图结构。当前画布存在时，保留没有被需求改变的节点、连线和布局关系，并返回修改后的完整图。参考 {"title":"选题","nodes":[{"id":"a","label":"开始","type":"terminal"},{"id":"b","label":"调研","type":"process"}],"edges":[{"from":"a","to":"b","label":""}]}。使用 2–30 个节点、至多 80 条有向边，节点 id 尽量沿用上下文中的 id。连线引用现有节点，避免自环。条件分支用 label 标出。节点使用简明中文。type 可用：' +
   symbols.map(item => item.id + '（' + item.label + '）').join('、')
 
 export function arrange(project: Diagram, direction: Direction): Diagram {

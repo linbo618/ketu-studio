@@ -207,13 +207,28 @@ export default function App() {
     message('已连接 ' + (shapes.length - project.shapes.length) + ' 条箭头')
   }
 
-  function useGenerated(draft: Diagram, append: boolean) {
-    if (!append || !generationAnchor) { create(draft, '已创建可编辑示意图'); return }
-    const result = appendBranch(project, draft, generationAnchor)
-    if (!commit(result.changes, result.selected)) throw new Error('接入后会超过项目的 1200 个对象上限。')
+  function useGenerated(draft: Diagram, action: 'current' | 'new' | 'append') {
+    if (action === 'new') {
+      create(draft, '已创建可编辑副本')
+      return
+    }
+    if (action === 'append') {
+      if (!generationAnchor) throw new Error('请先选中一个节点，再接入生成分支。')
+      const result = appendBranch(project, draft, generationAnchor)
+      if (!commit(result.changes, result.selected)) throw new Error('接入后会超过项目的 1200 个对象上限。')
+      fit()
+      setDialog(null)
+      message('已将生成的节点和连线接入当前图')
+      return
+    }
+    const selectedDraft = draft.shapes.filter(item => isNode(item) && !item.hidden).map(item => item.id)
+    if (!commit({
+      name: draft.name, width: draft.width, height: draft.height,
+      background: draft.background, shapes: draft.shapes,
+    }, selectedDraft)) throw new Error('应用后会超过项目的 1200 个对象上限。')
     fit()
     setDialog(null)
-    message('已将生成的节点和连线接入当前图')
+    message('已将 AI 修改应用到当前图')
   }
 
   function layer(direction: 'up' | 'down') {
