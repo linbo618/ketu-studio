@@ -93,22 +93,49 @@ export function fromOutline(text: string, direction: Direction) {
 
 function validateGraph(value: unknown): Graph {
   const graph = value as Partial<Graph> | null
-  if (!graph || typeof graph.title !== 'string' || !Array.isArray(graph.nodes) ||
-      graph.nodes.length < 2 || graph.nodes.length > 30 || !Array.isArray(graph.edges) || graph.edges.length > 80) {
-    throw new Error('AI 返回的图结构无效，请缩短描述后重试。')
+  const rawNodes = graph && Array.isArray(graph.nodes) ? graph.nodes.slice(0, 30) : []
+  const nodes: Graph['nodes'] = []
+  const ids = new Map<string, string>()
+  for (let index = 0; index < rawNodes.length; index += 1) {
+    const item = rawNodes[index] as Partial<Graph['nodes'][number]> | null
+    const label = typeof item?.label === 'string' ? item.label.trim().slice(0, 100) : ''
+    if (!label) continue
+    const rawId = typeof item?.id === 'string' ? item.id.trim() : ''
+    const id = 'node-' + nodes.length
+    if (rawId && !ids.has(rawId)) ids.set(rawId, id)
+    const fallback = nodes.length === 0 || nodes.length === rawNodes.length - 1 ? 'terminal' : 'process'
+    const type = typeof item?.type === 'string' && findSymbol(item.type)?.id
+      ? findSymbol(item.type)!.id
+      : /[？?]|是否|判断/.test(label) ? 'decision' : fallback
+    nodes.push({ id, label, type })
   }
-  const keys = new Set<string>()
-  for (const item of graph.nodes) {
-    if (!item || typeof item.id !== 'string' || !item.id.trim() || keys.has(item.id) || typeof item.label !== 'string' || !item.label.trim()) {
-      throw new Error('AI 返回了无效或重复的节点。')
-    }
-    keys.add(item.id)
+  if (nodes.length < 2) throw new Error('模型没有生成至少两个可用节点，请补充需求后重试。')
+
+  const resolve = (value: unknown) => {
+    if (typeof value === 'number' && Number.isInteger(value)) return nodes[value]?.id
+    if (typeof value !== 'string') return undefined
+    return ids.get(value.trim()) ?? nodes.find(item => item.id === value.trim())?.id
   }
-  for (const edge of graph.edges) {
-    if (!edge || !keys.has(edge.from) || !keys.has(edge.to) || edge.from === edge.to) throw new Error('AI 返回了无效的连线。')
-    if (edge.label !== undefined && typeof edge.label !== 'string') throw new Error('连线标签必须是文字。')
+  const edges: Graph['edges'] = []
+  const seen = new Set<string>()
+  const rawEdges = graph && Array.isArray(graph.edges) ? graph.edges.slice(0, 80) : []
+  for (const raw of rawEdges) {
+    const edge = raw as Partial<Graph['edges'][number]> | null
+    const from = resolve(edge?.from)
+    const to = resolve(edge?.to)
+    if (!from || !to || from === to) continue
+    const key = from + '>' + to
+    if (seen.has(key)) continue
+    seen.add(key)
+    edges.push({ from, to, label: typeof edge?.label === 'string' ? edge.label.slice(0, 32) : undefined })
   }
-  return graph as Graph
+  if (!edges.length) {
+    for (let index = 1; index < nodes.length; index += 1) edges.push({ from: nodes[index - 1].id, to: nodes[index].id })
+  }
+  return {
+    title: typeof graph?.title === 'string' && graph.title.trim() ? graph.title.trim().slice(0, 60) : '我的示意图',
+    nodes, edges,
+  }
 }
 
 function fromGraph(graph: Graph, direction: Direction) {
